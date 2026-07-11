@@ -167,6 +167,18 @@ Rules:
             }
         }
 
+    override suspend fun generate(prompt: String): String = withContext(Dispatchers.IO) {
+        val e = engine ?: return@withContext ""
+        try {
+            e.createConversation().use { conv ->
+                conv.sendMessage(Contents.of(Content.Text(prompt))).contents.contents
+                    .filterIsInstance<Content.Text>().joinToString("") { it.text }.trim()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "generate failed", t); ""
+        }
+    }
+
     override fun queryStream(question: String, ledgerContext: String) =
         kotlinx.coroutines.flow.flow {
             val e = engine ?: run { emit("Engine not ready"); return@flow }

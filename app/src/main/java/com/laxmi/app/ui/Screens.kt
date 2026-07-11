@@ -47,7 +47,10 @@ fun LedgerScreen(vm: AppViewModel) {
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Laxmi", style = MaterialTheme.typography.headlineMedium)
-            OutlinedButton(onClick = { vm.sendDigestNow() }) { Text("🔔 Aaj ka hisaab") }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { vm.runInsightsOnDevice() }) { Text("📊") }
+                OutlinedButton(onClick = { vm.sendDigestNow() }) { Text("🔔 Aaj ka hisaab") }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column {

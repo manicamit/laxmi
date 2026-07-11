@@ -147,6 +147,10 @@ object Extractor {
     suspend fun query(question: String, ledgerContext: String): String =
         mutex.withLock { engine?.query(question, ledgerContext) ?: "Engine not ready" }
 
+    /** On-device reminder composition — language only, so it never leaves the phone. */
+    suspend fun generateOnDevice(prompt: String): String =
+        mutex.withLock { engine?.generate(prompt) ?: "" }
+
     /** Background share-in: decode a copied audio file, extract, notify. The UI
      *  (share picker) has already dismissed — this runs fire-and-forget. */
     fun ingestSharedAudioFile(path: String, partyOverride: String?, fromMe: Boolean) {
@@ -208,6 +212,50 @@ object Extractor {
         mutex.withLock {
             e.queryAudioStream(audio, ledgerContext()).collect { onToken(it) }
         }
+    }
+
+    /** Purchase-side summary for the market agent — goods + prices only, SUPPLIER
+     *  NAMES STRIPPED (price comparison needs neither identity nor the ledger). */
+    fun purchaseContext(): String =
+        LedgerStore.events.value
+            .filter { it.status != EventStatus.REJECTED && it.type != "unfiled" && it.direction == Direction.I_OWE }
+            .joinToString("\n") { ev ->
+                val amt = ev.amountPaise?.let { "₹${it / 100}" } ?: "?"
+                val qty = listOfNotNull(ev.quantity?.toString(), ev.item).joinToString(" ").ifBlank { ev.type }
+                "- $qty, paid $amt"
+            }.ifBlank { "(koi purchase record nahi)" }
+
+    /** Distinct goods the shop deals in — item names only, no names/amounts. */
+    fun goodsContext(): String =
+        LedgerStore.events.value
+            .filter { it.status != EventStatus.REJECTED && !it.item.isNullOrBlank() }
+            .mapNotNull { it.item }.distinct().joinToString(", ")
+            .ifBlank { "(items abhi record nahi hue)" }
+
+    /** Credit summary for the dossier agent — AGGREGATES ONLY. No names, no
+     *  per-person amounts, no audio. This is the firewall: the whole private
+     *  ledger reduced to the few numbers a lender needs. */
+    fun creditSummary(): String {
+        val evs = LedgerStore.events.value.filter {
+            it.status != EventStatus.REJECTED && it.type != "unfiled"
+        }
+        val commitments = evs.filter { it.kind == EventKind.COMMITMENT }
+        val settlements = evs.filter { it.kind == EventKind.SETTLEMENT }
+        val receivables = commitments.filter { it.direction == Direction.OWED_TO_ME }
+            .sumOf { it.amountPaise ?: 0 } / 100
+        val payables = commitments.filter { it.direction == Direction.I_OWE }
+            .sumOf { it.amountPaise ?: 0 } / 100
+        val parties = evs.map { it.party }.distinct().size
+        val reliability = if (commitments.isNotEmpty())
+            (settlements.size * 100) / (commitments.size + settlements.size).coerceAtLeast(1) else 0
+        return """
+Receivables (aana hai): ₹%,d
+Payables (dena hai): ₹%,d
+Net position: ₹%,d
+Active business relationships: %d
+Settlements recorded: %d  |  reliability ~%d%%
+(No names, no per-person amounts, no audio — aggregates only.)
+""".trimIndent().format(receivables, payables, receivables - payables, parties, settlements.size, reliability)
     }
 
     fun ledgerContext(): String =

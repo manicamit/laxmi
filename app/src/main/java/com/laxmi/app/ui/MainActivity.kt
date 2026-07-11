@@ -116,6 +116,10 @@ private fun MainTabs(vm: AppViewModel, startTab: Int = 0) {
                     selected = tab == 3, onClick = { tab = 3 },
                     icon = { Text("💬") }, label = { Text("Poocho") },
                 )
+                NavigationBarItem(
+                    selected = tab == 4, onClick = { tab = 4 },
+                    icon = { Text("🤖") }, label = { Text("Agents") },
+                )
             }
         }
     ) { padding ->
@@ -126,9 +130,11 @@ private fun MainTabs(vm: AppViewModel, startTab: Int = 0) {
                 1 -> CaptureScreen(vm)
                 2 -> InboxScreen(vm)
                 3 -> AskScreen(vm)
+                4 -> AgentsScreen(vm)
             }
         }
         MissionOverlay(vm)
+        AgentRunOverlay(vm)
     }
 }
 

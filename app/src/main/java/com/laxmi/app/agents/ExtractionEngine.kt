@@ -38,6 +38,10 @@ interface ExtractionEngine {
      * question's language. */
     suspend fun query(question: String, ledgerContext: String): String
 
+    /** Raw prompt completion (no wrapper) — for on-device language tasks like
+     * composing reminders locally. */
+    suspend fun generate(prompt: String): String
+
     /** Streaming variant: emits the cumulative answer text as tokens arrive. */
     fun queryStream(question: String, ledgerContext: String): kotlinx.coroutines.flow.Flow<String>
 

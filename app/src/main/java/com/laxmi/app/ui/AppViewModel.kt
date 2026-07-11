@@ -87,7 +87,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             amountRupees = kotlin.math.abs(balance.netPaise) / 100,
             duePhrase = due,
         )
-        missionState.value = MissionState.AwaitingConsent(party, brief)
+        // On-device — no consent gate needed, nothing leaves the phone.
+        missionState.value = MissionState.Running
+        viewModelScope.launch {
+            try {
+                val output = com.laxmi.app.agents.Extractor.generateOnDevice(
+                    com.laxmi.app.missions.CollectionsMission.prompt(brief))
+                val ladder = com.laxmi.app.missions.CollectionsMission.parseLadder(output)
+                missionState.value = if (ladder.isEmpty())
+                    MissionState.Failed("Reminder nahi ban paya:\n${output.take(200)}")
+                else MissionState.Done(party, ladder)
+            } catch (t: Throwable) {
+                missionState.value = MissionState.Failed(t.message ?: "reminder failed")
+            }
+        }
     }
 
     fun approveMission() {
@@ -95,23 +108,147 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         missionState.value = MissionState.Running
         viewModelScope.launch {
             try {
-                val output = com.laxmi.app.missions.MissionClient.run(
+                // ON-DEVICE: composing a reminder is language only — no data leaves.
+                val output = com.laxmi.app.agents.Extractor.generateOnDevice(
                     com.laxmi.app.missions.CollectionsMission.prompt(consent.briefJson)
                 )
                 val ladder = com.laxmi.app.missions.CollectionsMission.parseLadder(output)
                 missionState.value = if (ladder.isEmpty()) {
-                    MissionState.Failed("Agent returned no ladder:\n${output.take(200)}")
+                    MissionState.Failed("Reminder nahi ban paya:\n${output.take(200)}")
                 } else {
                     MissionState.Done(consent.party, ladder)
                 }
             } catch (t: Throwable) {
-                missionState.value = MissionState.Failed(t.message ?: "mission failed")
+                missionState.value = MissionState.Failed(t.message ?: "reminder failed")
             }
         }
     }
 
     fun dismissMission() {
         missionState.value = MissionState.Idle
+    }
+
+    // ---- Cloud specialists Gemma delegates to (Track 2 — Antigravity) ----
+
+    // Outward (cloud) workflows only — inward jobs (reminders, insights) are on-device.
+    enum class Workflow { DOSSIER, MARKET, GUIDE, SCHEMES, DEMAND }
+
+    sealed interface AgentResult {
+        data class Messages(val items: List<com.laxmi.app.missions.CollectionsCampaign.CampaignMessage>) : AgentResult
+        data class Report(val text: String) : AgentResult
+    }
+
+    sealed interface AgentRun {
+        data object Idle : AgentRun
+        data class Consent(
+            val wf: Workflow, val title: String, val payload: String,
+            val debtors: List<com.laxmi.app.missions.CollectionsCampaign.Debtor>,
+        ) : AgentRun
+        data class Running(val title: String, val steps: List<String>) : AgentRun
+        data class Done(val title: String, val result: AgentResult) : AgentRun
+        data class Failed(val title: String, val msg: String) : AgentRun
+    }
+
+    val agentRun = MutableStateFlow<AgentRun>(AgentRun.Idle)
+
+    fun requestWorkflow(wf: Workflow) {
+        val owed = balances.value.filter { it.netPaise > 0 }
+        val debtors = owed.map { b ->
+            val due = events.value.firstOrNull { it.party == b.party && it.duePhrase != null }?.duePhrase
+            com.laxmi.app.missions.CollectionsCampaign.Debtor(b.party, b.netPaise / 100, due)
+        }
+        val title: String
+        val payload: String
+        when (wf) {
+            Workflow.DOSSIER -> { title = "Credit dossier"; payload = com.laxmi.app.agents.Extractor.creditSummary() }
+            Workflow.MARKET -> { title = "Bazaar bhav"; payload = com.laxmi.app.agents.Extractor.purchaseContext() }
+            Workflow.SCHEMES -> { title = "Sarkari schemes"; payload = com.laxmi.app.agents.Extractor.creditSummary() }
+            Workflow.DEMAND -> { title = "Festival demand"; payload = com.laxmi.app.agents.Extractor.goodsContext() }
+            Workflow.GUIDE -> { title = "Guide"; payload = "" } // set via requestGuide
+        }
+        agentRun.value = AgentRun.Consent(wf, title, payload, debtors)
+    }
+
+    /** Step-by-step guidance (outward: needs the current real-world process). The
+     *  payload is just the topic — almost nothing private leaves. */
+    fun requestGuide(topic: String) {
+        agentRun.value = AgentRun.Consent(Workflow.GUIDE, "Guide: $topic", topic, emptyList())
+    }
+
+    private fun pushStep(s: String) {
+        (agentRun.value as? AgentRun.Running)?.let { agentRun.value = it.copy(steps = it.steps + s) }
+    }
+
+    fun approveWorkflow() {
+        val c = agentRun.value as? AgentRun.Consent ?: return
+        agentRun.value = AgentRun.Running(c.title, listOf("Laxmi specialists ko brief bhej rahi hai…"))
+        viewModelScope.launch {
+            try {
+                val wf = com.laxmi.app.missions.AgentWorkflows
+                val mc = com.laxmi.app.missions.MissionClient
+                when (c.wf) {
+                    Workflow.DOSSIER -> {
+                        pushStep("📊 Analyst code se metrics compute kar raha hai…")
+                        val metrics = mc.run(wf.analystPrompt(c.payload))
+                        pushStep("🌐 Researcher web se schemes dhoond raha hai…")
+                        val research = mc.run(wf.researcherPrompt(metrics))
+                        pushStep("🧑‍⚖️ Advisor loan-readiness summary bana raha hai…")
+                        val advice = mc.run(wf.advisorPrompt(metrics, research))
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                    }
+                    Workflow.MARKET -> {
+                        pushStep("🌐 Researcher live market bhav dhoond raha hai…")
+                        val prices = mc.run(wf.marketResearcherPrompt(c.payload))
+                        pushStep("📊 Analyst aapke rate vs bazaar compare kar raha hai…")
+                        val analysis = mc.run(wf.marketAnalystPrompt(c.payload, prices))
+                        pushStep("🧑‍⚖️ Advisor bachat ke tarike bata raha hai…")
+                        val advice = mc.run(wf.marketAdvisorPrompt(analysis))
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                    }
+                    Workflow.GUIDE -> {
+                        pushStep("🌐 Researcher aaj ka process web se nikaal raha hai…")
+                        val research = mc.run(wf.guideResearcherPrompt(c.payload))
+                        pushStep("📋 Planner step-by-step checklist bana raha hai…")
+                        val steps = mc.run(wf.guidePlannerPrompt(c.payload, research))
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(steps))
+                    }
+                    Workflow.SCHEMES -> {
+                        pushStep("🌐 Researcher sarkari schemes dhoond raha hai…")
+                        val research = mc.run(wf.schemeResearcherPrompt(c.payload))
+                        pushStep("🧑‍⚖️ Advisor eligible schemes chun raha hai…")
+                        val advice = mc.run(wf.schemeAdvisorPrompt(research))
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                    }
+                    Workflow.DEMAND -> {
+                        pushStep("🌐 Researcher upcoming festivals/season dekh raha hai…")
+                        val research = mc.run(wf.demandResearcherPrompt(c.payload))
+                        pushStep("🧑‍⚖️ Advisor stock-up plan bana raha hai…")
+                        val advice = mc.run(wf.demandAdvisorPrompt(c.payload, research))
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                    }
+                }
+            } catch (t: Throwable) {
+                agentRun.value = AgentRun.Failed(c.title, t.message ?: "fail ho gaya")
+            }
+        }
+    }
+
+    fun dismissAgent() { agentRun.value = AgentRun.Idle }
+
+    /** Insights are INWARD (only your ledger) → on-device Gemma, no consent, offline. */
+    fun runInsightsOnDevice() {
+        agentRun.value = AgentRun.Running("Business insights", listOf("Laxmi phone pe hi analyze kar rahi hai…"))
+        viewModelScope.launch {
+            try {
+                val out = com.laxmi.app.agents.Extractor.generateOnDevice(
+                    com.laxmi.app.missions.AgentWorkflows.insightsPrompt(
+                        com.laxmi.app.agents.Extractor.ledgerContext()))
+                agentRun.value = AgentRun.Done("Business insights",
+                    AgentResult.Report(out.ifBlank { "Abhi analyze nahi kar payi." }))
+            } catch (t: Throwable) {
+                agentRun.value = AgentRun.Failed("Business insights", t.message ?: "fail")
+            }
+        }
     }
 
     // ---- Ask the ledger (offline query) ----
