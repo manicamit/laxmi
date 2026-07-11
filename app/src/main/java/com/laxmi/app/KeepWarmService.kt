@@ -51,12 +51,16 @@ class KeepWarmService : Service() {
         private const val CHANNEL = "laxmi_warm"
         private const val NOTIF_ID = 1
 
+        /** Call only from a foreground Activity. Defensive: never crash the app if
+         *  the OS refuses the foreground-service start. */
         fun start(context: Context) {
-            val i = Intent(context, KeepWarmService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(i)
-            } else {
-                context.startService(i)
+            runCatching {
+                val i = Intent(context, KeepWarmService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(i)
+                } else {
+                    context.startService(i)
+                }
             }
         }
     }

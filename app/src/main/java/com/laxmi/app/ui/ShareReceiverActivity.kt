@@ -62,10 +62,11 @@ class ShareReceiverActivity : ComponentActivity() {
                 handleText(intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty())
                 finish()
             }
-            type.startsWith("audio/") -> {
+            type.startsWith("audio/") || type.startsWith("image/") -> {
                 val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
                 if (uri == null) { finish(); return }
-                setContent { LaxmiTheme { PartyPickerFlow(uri) } }
+                val isImage = type.startsWith("image/")
+                setContent { LaxmiTheme { PartyPickerFlow(uri, isImage) } }
             }
             else -> finish()
         }
@@ -96,19 +97,23 @@ class ShareReceiverActivity : ComponentActivity() {
 
     @OptIn(ExperimentalLayoutApi::class)
     @Composable
-    private fun PartyPickerFlow(uri: Uri) {
+    private fun PartyPickerFlow(uri: Uri, isImage: Boolean) {
         var working by remember { mutableStateOf(false) }
         var newName by remember { mutableStateOf("") }
+        // Voice notes: who spoke decides the direction. Default: the other person
+        // sent it (the common case). Images derive direction from their content.
+        var fromMe by remember { mutableStateOf(false) }
         val parties = remember { LedgerStore.partyNames() }
 
         fun submit(party: String?) {
             working = true
             lifecycleScope.launch {
-                // Copy the shared audio NOW (the URI grant dies with this activity),
+                // Copy the shared file NOW (the URI grant dies with this activity),
                 // then dismiss and let extraction run in the background.
+                val ext = if (isImage) "img" else "audio"
                 val copied = withContext(Dispatchers.IO) {
                     runCatching {
-                        val f = java.io.File(cacheDir, "share_${System.nanoTime()}.audio")
+                        val f = java.io.File(cacheDir, "share_${System.nanoTime()}.$ext")
                         contentResolver.openInputStream(uri)?.use { input ->
                             f.outputStream().use { input.copyTo(it) }
                         }
@@ -116,10 +121,11 @@ class ShareReceiverActivity : ComponentActivity() {
                     }.getOrNull()
                 }
                 if (copied == null) {
-                    Toast.makeText(applicationContext, "Laxmi: audio nahi mila", Toast.LENGTH_LONG).show()
+                    Toast.makeText(applicationContext, "Laxmi: file nahi mili", Toast.LENGTH_LONG).show()
                     finish(); return@launch
                 }
-                Extractor.ingestSharedAudioFile(copied, party)
+                if (isImage) Extractor.ingestSharedImageFile(copied, party, fromMe = true)
+                else Extractor.ingestSharedAudioFile(copied, party, fromMe = fromMe)
                 Toast.makeText(
                     applicationContext,
                     "Laxmi: ${party ?: "auto"} ke liye ho gaya — ledger mein aa jayega",
@@ -139,7 +145,24 @@ class ShareReceiverActivity : ComponentActivity() {
                     CircularProgressIndicator(color = Color.White)
                     Text("Laxmi sun rahi hai…", color = Color.White)
                 } else {
-                    Text("Voice note kis party ka hai?", color = Color(0xCCFFFFFF))
+                    if (!isImage) {
+                        Text("Kisne bola?", color = Color(0xCCFFFFFF))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AssistChip(
+                                onClick = { fromMe = false },
+                                label = { Text(if (!fromMe) "● Unhone bola" else "Unhone bola") },
+                            )
+                            AssistChip(
+                                onClick = { fromMe = true },
+                                label = { Text(if (fromMe) "● Maine bola" else "Maine bola") },
+                            )
+                        }
+                    }
+                    Text(
+                        if (isImage) "Yeh bill/screenshot kis party ka hai?"
+                        else "Voice note kis party ka hai?",
+                        color = Color(0xCCFFFFFF),
+                    )
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         AssistChip(onClick = { submit(null) }, label = { Text("Auto-detect") })
                         parties.forEach { p ->

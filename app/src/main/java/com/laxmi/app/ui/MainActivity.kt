@@ -59,6 +59,8 @@ class MainActivity : ComponentActivity() {
         ) {
             notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
+        // Foreground context — safe to pin the process so the engine stays warm.
+        com.laxmi.app.KeepWarmService.start(this)
         val fromAssist = intent?.action == android.content.Intent.ACTION_ASSIST
         setContent {
             LaxmiTheme {

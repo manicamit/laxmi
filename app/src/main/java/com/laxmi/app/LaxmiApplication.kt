@@ -9,7 +9,9 @@ class LaxmiApplication : Application() {
         super.onCreate()
         LedgerStore.init(filesDir)
         Extractor.init(this) // warms the single shared engine at process start
-        KeepWarmService.start(this) // pin the process so the model stays warm
         DigestWorker.schedule(this) // daily "aaj ka hisaab" dues reminder
+        // NOTE: KeepWarmService is started from MainActivity, NOT here — starting a
+        // foreground service from Application.onCreate crashes when the process was
+        // spawned in the background (share, worker, restart).
     }
 }

@@ -92,6 +92,7 @@ object Extractor {
         text: String? = null,
         sourceTag: String,
         partyOverride: String? = null,
+        flipDirection: Boolean = false,
         onDone: (Int) -> Unit = {},
     ) {
         scope.launch {
@@ -120,7 +121,7 @@ object Extractor {
                             onDone(0)
                         } else {
                             val created = result.items.map {
-                                LedgerStore.fromExtraction(it, sourceTag, audio, text, partyOverride)
+                                LedgerStore.fromExtraction(it, sourceTag, audio, text, partyOverride, flipDirection)
                                     .also { ev -> LedgerStore.append(ev) }
                             }
                             notifyResult(created)
@@ -148,7 +149,7 @@ object Extractor {
 
     /** Background share-in: decode a copied audio file, extract, notify. The UI
      *  (share picker) has already dismissed — this runs fire-and-forget. */
-    fun ingestSharedAudioFile(path: String, partyOverride: String?) {
+    fun ingestSharedAudioFile(path: String, partyOverride: String?, fromMe: Boolean) {
         scope.launch {
             val wav = withContext(Dispatchers.IO) { com.laxmi.app.audio.AudioDecoder.decodeToWav(path) }
             runCatching { java.io.File(path).delete() }
@@ -156,8 +157,40 @@ object Extractor {
                 com.laxmi.app.Notifier.show(appContext, "Laxmi", "Voice note samajh nahi aaya")
                 return@launch
             }
-            // ingest() posts the result notification centrally.
-            ingest(audio = wav, sourceTag = "whatsapp-audio", partyOverride = partyOverride)
+            // Counterparty's note -> flip direction for the user's ledger.
+            ingest(audio = wav, sourceTag = "whatsapp-audio", partyOverride = partyOverride, flipDirection = !fromMe)
+        }
+    }
+
+    /** Background image share-in: bill/receipt/UPI screenshot -> extract -> notify. */
+    fun ingestSharedImageFile(path: String, partyOverride: String?, fromMe: Boolean) {
+        scope.launch {
+            busy.value = true
+            if (engine == null) {
+                warm(appContext)
+                withTimeoutOrNull(120_000) { state.first { it == EngineState.READY || it == EngineState.ERROR } }
+            }
+            mutex.withLock {
+                val e = engine
+                if (e == null) {
+                    com.laxmi.app.Notifier.show(appContext, "Laxmi", "Engine ready nahi — dobara try karo")
+                } else when (val r = e.extractImage(path)) {
+                    is ExtractionResult.Success -> {
+                        if (r.items.isEmpty()) {
+                            com.laxmi.app.Notifier.show(appContext, "Laxmi", "Image mein koi hisaab nahi mila")
+                        } else {
+                            val created = r.items.map {
+                                LedgerStore.fromExtraction(it, "whatsapp-image", null, "shared image", partyOverride, !fromMe)
+                                    .also { ev -> LedgerStore.append(ev) }
+                            }
+                            notifyResult(created)
+                        }
+                    }
+                    else -> com.laxmi.app.Notifier.show(appContext, "Laxmi", "Image samajh nahi aayi")
+                }
+            }
+            runCatching { java.io.File(path).delete() }
+            busy.value = false
         }
     }
 

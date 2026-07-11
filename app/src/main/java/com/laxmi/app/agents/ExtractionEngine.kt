@@ -31,6 +31,9 @@ interface ExtractionEngine {
     suspend fun initialize()
     suspend fun extract(audio: ByteArray? = null, text: String? = null): ExtractionResult
 
+    /** Extract from a bill/receipt photo or UPI payment screenshot (by file path). */
+    suspend fun extractImage(imagePath: String): ExtractionResult
+
     /** Free-form question over a pre-serialized ledger context; answers in the
      * question's language. */
     suspend fun query(question: String, ledgerContext: String): String

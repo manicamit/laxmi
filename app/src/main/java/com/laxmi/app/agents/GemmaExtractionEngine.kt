@@ -44,9 +44,10 @@ class GemmaExtractionEngine(
                 val config = EngineConfig(
                     modelPath = modelFile.absolutePath,
                     backend = backend,
-                    // Without an explicit audioBackend the audio executor is never
-                    // loaded and audio prompts fail with "Audio executor should not
-                    // be null". CPU is the standard pairing for the audio encoder.
+                    // Encoders must be explicitly assigned or their executors never
+                    // load (audio prompts failed with "Audio executor null"; images
+                    // need the vision executor the same way). CPU pairs with both.
+                    visionBackend = Backend.CPU(),
                     audioBackend = Backend.CPU(),
                     cacheDir = cacheDir.path,
                 )
@@ -130,6 +131,41 @@ $ledgerContext
 
 QUESTION: $question
 """.trimIndent()
+
+    override suspend fun extractImage(imagePath: String): ExtractionResult =
+        withContext(Dispatchers.IO) {
+            val e = engine ?: return@withContext ExtractionResult.EngineFailure("Engine not ready")
+            try {
+                e.createConversation().use { conv ->
+                    val prompt = """
+This image is from an Indian small business: either a bill/receipt/parchi, or a
+UPI payment screenshot (PhonePe/GPay/Paytm). Extract money commitments or
+settlements as a JSON array — no prose, no fences. Use this schema per object:
+{"kind":"commitment|settlement","party":"<shop/person name>","direction":"owed_to_me|i_owe",
+"type":"payment|delivery|service","firmness":"firm","amount_phrase":"<verbatim>",
+"amount_guess":<number>,"quantity":null,"item":"<goods if any>","due_phrase":null,
+"refers_to_existing":false,"confidence":<0-1>,"quote":"<text seen in image>"}
+
+Rules:
+- UPI screenshot = "settlement" (money already moved). "Paid to X" => direction
+  i_owe (we paid them). "Received from X" => owed_to_me (they paid us).
+- Supplier bill/receipt we have to pay = "commitment", direction i_owe, party =
+  the shop/supplier.
+- Empty array [] if no money info is visible.
+""".trimIndent()
+                    val response = conv.sendMessage(
+                        Contents.of(Content.Text(prompt), Content.ImageFile(imagePath))
+                    )
+                    val text = response.contents.contents
+                        .filterIsInstance<Content.Text>().joinToString("") { it.text }
+                    Log.i(TAG, "raw image response: ${text.take(400)}")
+                    parseResponse(text)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "image extraction failed", t)
+                ExtractionResult.EngineFailure(t.message ?: "image error")
+            }
+        }
 
     override fun queryStream(question: String, ledgerContext: String) =
         kotlinx.coroutines.flow.flow {

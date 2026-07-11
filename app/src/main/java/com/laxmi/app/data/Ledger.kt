@@ -174,8 +174,15 @@ object LedgerStore {
         sourceAudio: ByteArray?,
         sourceText: String?,
         partyOverride: String? = null,
+        flipDirection: Boolean = false,
     ): LedgerEvent {
         val autoAccept = item.confidence >= 0.85 && item.firmness == "firm"
+        val baseDir = if (item.direction == "i_owe") Direction.I_OWE else Direction.OWED_TO_ME
+        // Note recorded by the counterparty: the model read direction from THEIR
+        // point of view, so flip it for the user's ledger.
+        val dir = if (flipDirection) {
+            if (baseDir == Direction.OWED_TO_ME) Direction.I_OWE else Direction.OWED_TO_ME
+        } else baseDir
         return LedgerEvent(
             party = partyOverride?.takeIf { it.isNotBlank() }
                 ?: item.party.trim().removeSuffix(" ji").removeSuffix(" bhai").trim()
@@ -185,7 +192,7 @@ object LedgerStore {
                 "correction" -> EventKind.CORRECTION
                 else -> EventKind.COMMITMENT
             },
-            direction = if (item.direction == "i_owe") Direction.I_OWE else Direction.OWED_TO_ME,
+            direction = dir,
             type = item.type,
             amountPaise = item.amountGuess?.let { it * 100 },
             quantity = item.quantity,
