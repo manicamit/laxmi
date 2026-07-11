@@ -60,3 +60,16 @@ print(run("You are the RESEARCHER agent. Use WEB SEARCH to find CURRENT Indian g
           "List 3 with name, benefit, eligibility, official portal."))
 
 print("\nDONE.")
+
+# --- Gap verification: grounding + graceful failure ---
+print("\n" + "=" * 20, "GROUNDING: advisor with EMPTY research (must not invent)", "=" * 20)
+print(run("You are the ADVISOR. This will be read aloud in simple spoken Hinglish, no "
+          "markdown/URL/citations, max 3 sentences. GROUNDING: only use the research below; "
+          "do NOT invent scheme names, numbers, rates or dates. If not in research, don't say it.\n\n"
+          "RESEARCH: (none available)"))
+
+print("\n" + "=" * 20, "SPOKEN CHECK: scheme advisor on real research is short & speakable", "=" * 20)
+print(run("You are the ADVISOR. Read aloud, simple spoken Hinglish, NO markdown/URL/citations, "
+          "max 3 sentences. Name the 2 best schemes and first step each.\n\n"
+          "SCHEMES: Mudra Shishu up to 50000 collateral-free; PM SVANidhi up to 10000 for street vendors."))
+print("\nGAP CHECKS DONE.")

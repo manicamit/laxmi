@@ -32,6 +32,27 @@ object MissionClient {
         missionPrompt: String,
         previousInteractionId: String? = null,
         environmentId: String? = null,
+    ): Result {
+        // Error recovery: retry transient failures (flaky venue Wi-Fi, 5xx, 429)
+        // with backoff. 4xx (bad request/auth) is not retried.
+        var lastErr: Throwable? = null
+        repeat(3) { attempt ->
+            try {
+                return once(missionPrompt, previousInteractionId, environmentId)
+            } catch (e: RetryableException) {
+                lastErr = e
+                kotlinx.coroutines.delay(1200L * (attempt + 1))
+            }
+        }
+        throw MissionException("Mission failed after retries: ${lastErr?.message}")
+    }
+
+    private class RetryableException(message: String) : Exception(message)
+
+    private suspend fun once(
+        missionPrompt: String,
+        previousInteractionId: String?,
+        environmentId: String?,
     ): Result = withContext(Dispatchers.IO) {
         if (BuildConfig.GEMINI_API_KEY.isEmpty()) {
             throw MissionException("No API key configured (local.properties laxmi.geminiApiKey)")
@@ -57,15 +78,25 @@ object MissionClient {
         }
         try {
             conn.outputStream.use { it.write(body.toByteArray()) }
-            val code = conn.responseCode
+            val code = try {
+                conn.responseCode
+            } catch (io: java.io.IOException) {
+                throw RetryableException("network: ${io.message}")
+            }
             val response = (if (code in 200..299) conn.inputStream else conn.errorStream)
                 ?.bufferedReader()?.readText().orEmpty()
-            if (code !in 200..299) {
-                throw MissionException("Mission API $code: ${response.take(300)}")
+            when {
+                code in 200..299 -> Unit
+                code == 429 || code in 500..599 -> throw RetryableException("API $code")
+                else -> throw MissionException("Mission API $code: ${response.take(300)}")
             }
             val root = JSONObject(response)
+            val text = extractModelOutput(response)
+            if (root.optString("status") != "completed" || text.isBlank()) {
+                throw RetryableException("incomplete/empty response")
+            }
             Result(
-                text = extractModelOutput(response),
+                text = text,
                 interactionId = root.optString("id").ifBlank { null },
                 environmentId = root.optString("environment_id").ifBlank { null },
             )

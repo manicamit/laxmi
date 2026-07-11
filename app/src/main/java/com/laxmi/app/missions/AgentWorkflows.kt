@@ -75,10 +75,11 @@ NO headings. Max 3 short sentences. Lead with the biggest saving and one action.
 ANALYSIS: $analysis
 """.trimIndent()
 
-    // Shared instruction: everything the user hears must be speakable.
+    // Shared instruction: speakable + grounded (no invented facts).
     private const val SPOKEN = "Yeh shopkeeper ko ZOR SE (TTS) padha jayega — simple bole" +
         "-jaane wala Hinglish, NO markdown, NO URL, NO citations, NO headings, max 3-4 " +
-        "chhote sentences."
+        "chhote sentences. GROUNDING: sirf diye gaye research/facts use karo — koi scheme " +
+        "ka naam, number, rate ya date KHUD SE mat banao. Agar research mein nahi hai, mat kaho."
 
     // ---- Step-by-step guidance (web: current real-world process) ----
 
