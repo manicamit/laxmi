@@ -15,12 +15,16 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -140,6 +144,18 @@ fun AgentRunOverlay(vm: AppViewModel) {
                                     context.startActivity(Intent.createChooser(send, "Bhejo"))
                                 }) { Text("WhatsApp bhejo") }
                             }
+                            // Follow-up: continues the SAME agent session (sandbox + context).
+                            var followText by remember(s) { mutableStateOf("") }
+                            OutlinedTextField(
+                                value = followText,
+                                onValueChange = { followText = it },
+                                label = { Text("Aur poocho (usi agent se)…") },
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            Button(
+                                onClick = { if (followText.isNotBlank()) vm.followUp(followText) },
+                                enabled = followText.isNotBlank(),
+                            ) { Text("↪️ Aage poocho") }
                         }
                         is AppViewModel.AgentResult.Messages -> r.items.forEach { m ->
                             Card(Modifier.fillMaxWidth()) {

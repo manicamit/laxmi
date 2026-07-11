@@ -145,7 +145,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val debtors: List<com.laxmi.app.missions.CollectionsCampaign.Debtor>,
         ) : AgentRun
         data class Running(val title: String, val steps: List<String>) : AgentRun
-        data class Done(val title: String, val result: AgentResult) : AgentRun
+        data class Done(
+            val title: String, val result: AgentResult,
+            val interactionId: String? = null, val environmentId: String? = null,
+        ) : AgentRun
         data class Failed(val title: String, val msg: String) : AgentRun
     }
 
@@ -191,40 +194,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         pushStep("📊 Analyst code se metrics compute kar raha hai…")
                         val metrics = mc.run(wf.analystPrompt(c.payload))
                         pushStep("🌐 Researcher web se schemes dhoond raha hai…")
-                        val research = mc.run(wf.researcherPrompt(metrics))
+                        val research = mc.run(wf.researcherPrompt(metrics.text), metrics.interactionId, metrics.environmentId)
                         pushStep("🧑‍⚖️ Advisor loan-readiness summary bana raha hai…")
-                        val advice = mc.run(wf.advisorPrompt(metrics, research))
-                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                        val advice = mc.run(wf.advisorPrompt(metrics.text, research.text), research.interactionId, research.environmentId)
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice.text), advice.interactionId, advice.environmentId)
                     }
                     Workflow.MARKET -> {
                         pushStep("🌐 Researcher live market bhav dhoond raha hai…")
                         val prices = mc.run(wf.marketResearcherPrompt(c.payload))
                         pushStep("📊 Analyst aapke rate vs bazaar compare kar raha hai…")
-                        val analysis = mc.run(wf.marketAnalystPrompt(c.payload, prices))
+                        val analysis = mc.run(wf.marketAnalystPrompt(c.payload, prices.text), prices.interactionId, prices.environmentId)
                         pushStep("🧑‍⚖️ Advisor bachat ke tarike bata raha hai…")
-                        val advice = mc.run(wf.marketAdvisorPrompt(analysis))
-                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                        val advice = mc.run(wf.marketAdvisorPrompt(analysis.text), analysis.interactionId, analysis.environmentId)
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice.text), advice.interactionId, advice.environmentId)
                     }
                     Workflow.GUIDE -> {
                         pushStep("🌐 Researcher aaj ka process web se nikaal raha hai…")
                         val research = mc.run(wf.guideResearcherPrompt(c.payload))
                         pushStep("📋 Planner step-by-step checklist bana raha hai…")
-                        val steps = mc.run(wf.guidePlannerPrompt(c.payload, research))
-                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(steps))
+                        val steps = mc.run(wf.guidePlannerPrompt(c.payload, research.text), research.interactionId, research.environmentId)
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(steps.text), steps.interactionId, steps.environmentId)
                     }
                     Workflow.SCHEMES -> {
                         pushStep("🌐 Researcher sarkari schemes dhoond raha hai…")
                         val research = mc.run(wf.schemeResearcherPrompt(c.payload))
                         pushStep("🧑‍⚖️ Advisor eligible schemes chun raha hai…")
-                        val advice = mc.run(wf.schemeAdvisorPrompt(research))
-                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                        val advice = mc.run(wf.schemeAdvisorPrompt(research.text), research.interactionId, research.environmentId)
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice.text), advice.interactionId, advice.environmentId)
                     }
                     Workflow.DEMAND -> {
                         pushStep("🌐 Researcher upcoming festivals/season dekh raha hai…")
                         val research = mc.run(wf.demandResearcherPrompt(c.payload))
                         pushStep("🧑‍⚖️ Advisor stock-up plan bana raha hai…")
-                        val advice = mc.run(wf.demandAdvisorPrompt(c.payload, research))
-                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice))
+                        val advice = mc.run(wf.demandAdvisorPrompt(c.payload, research.text), research.interactionId, research.environmentId)
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice.text), advice.interactionId, advice.environmentId)
                     }
                 }
             } catch (t: Throwable) {
@@ -234,6 +237,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dismissAgent() { agentRun.value = AgentRun.Idle }
+
+    /** Follow-up that CONTINUES the same managed agent session (Antigravity's
+     *  persistent sandbox + reasoning context) — not a fresh call. */
+    fun followUp(text: String) {
+        val d = agentRun.value as? AgentRun.Done ?: return
+        agentRun.value = AgentRun.Running(d.title, listOf("↪️ Usi agent se aage: \"$text\""))
+        viewModelScope.launch {
+            try {
+                val r = com.laxmi.app.missions.MissionClient.run(
+                    "$text\n\n(Jawab: simple spoken Hinglish, chhota, no markdown/URL/citations.)",
+                    previousInteractionId = d.interactionId,
+                    environmentId = d.environmentId,
+                )
+                agentRun.value = AgentRun.Done(d.title, AgentResult.Report(r.text), r.interactionId, r.environmentId)
+            } catch (t: Throwable) {
+                agentRun.value = AgentRun.Failed(d.title, t.message ?: "follow-up fail")
+            }
+        }
+    }
 
     /** Insights are INWARD (only your ledger) → on-device Gemma, no consent, offline. */
     fun runInsightsOnDevice() {
