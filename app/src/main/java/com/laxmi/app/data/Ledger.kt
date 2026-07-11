@@ -55,10 +55,40 @@ object LedgerStore {
 
     private var storageDir: java.io.File? = null
 
+    // Party -> linked WhatsApp phone number (digits, intl). Small, loaded eagerly.
+    private val phones = mutableMapOf<String, String>()
+
+    fun phoneFor(party: String): String? = phones[party]
+
+    fun setPhone(party: String, rawNumber: String) {
+        val digits = rawNumber.filter { it.isDigit() }
+        val intl = if (digits.length == 10) "91$digits" else digits
+        if (intl.isNotBlank()) {
+            phones[party] = intl
+            persistPhones()
+        }
+    }
+
+    private fun persistPhones() {
+        val dir = storageDir ?: return
+        runCatching {
+            val o = org.json.JSONObject()
+            phones.forEach { (k, v) -> o.put(k, v) }
+            java.io.File(dir, "phones.json").writeText(o.toString())
+        }
+    }
+
     /** Call once from Application.onCreate. Loads persisted events + evidence. */
     fun init(filesDir: java.io.File) {
         val dir = java.io.File(filesDir, "ledger").apply { mkdirs() }
         storageDir = dir
+        runCatching {
+            val pf = java.io.File(dir, "phones.json")
+            if (pf.exists()) {
+                val o = org.json.JSONObject(pf.readText())
+                o.keys().forEach { phones[it] = o.getString(it) }
+            }
+        }
         val index = java.io.File(dir, "events.json")
         if (!index.exists()) return
         // Load off the main thread — reading evidence audio bytes was hanging startup.

@@ -83,12 +83,11 @@ fun MissionOverlay(vm: AppViewModel) {
                                 Text(step.tone.uppercase(), style = MaterialTheme.typography.labelSmall)
                                 Text(step.text, style = MaterialTheme.typography.bodyMedium)
                                 OutlinedButton(onClick = {
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, step.text)
-                                    }
-                                    context.startActivity(Intent.createChooser(send, "Bhejo"))
-                                }) { Text("WhatsApp par bhejo") }
+                                    WhatsAppSend.toParty(context, s.party, step.text)
+                                }) {
+                                    Text(if (com.laxmi.app.data.LedgerStore.phoneFor(s.party) != null)
+                                        "WhatsApp chat →" else "WhatsApp par bhejo")
+                                }
                             }
                         }
                     }

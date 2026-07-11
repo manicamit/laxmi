@@ -1,5 +1,6 @@
 package com.laxmi.app.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -239,11 +240,34 @@ private fun PartyCard(b: com.laxmi.app.data.PartyBalance, vm: AppViewModel) {
                         }
                     }
                 }
-                if (b.netPaise > 0) {
-                    Button(
-                        onClick = { vm.requestCollections(b.party) },
-                        modifier = Modifier.padding(top = 10.dp),
-                    ) { Text("Reminder bhejo") }
+                val linked = LedgerStore.phoneFor(b.party) != null
+                val picker = rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    val uri = result.data?.data ?: return@rememberLauncherForActivityResult
+                    runCatching {
+                        context.contentResolver.query(
+                            uri,
+                            arrayOf(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER),
+                            null, null, null,
+                        )?.use { cur ->
+                            if (cur.moveToFirst()) LedgerStore.setPhone(b.party, cur.getString(0))
+                        }
+                    }
+                }
+                Row(
+                    Modifier.padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (b.netPaise > 0) {
+                        Button(onClick = { vm.requestCollections(b.party) }) { Text("Reminder bhejo") }
+                    }
+                    OutlinedButton(onClick = {
+                        picker.launch(Intent(
+                            Intent.ACTION_PICK,
+                            android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                        ))
+                    }) { Text(if (linked) "🔗 Linked ✓" else "🔗 Contact") }
                 }
             }
         }
@@ -310,13 +334,9 @@ private fun AckRow(e: LedgerEvent) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (e.ackStatus == AckStatus.NONE) {
                     OutlinedButton(onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(Intent.EXTRA_TEXT, LedgerStore.receiptText(e))
-                        }
-                        context.startActivity(Intent.createChooser(send, "Receipt bhejo"))
+                        WhatsAppSend.toParty(context, e.party, LedgerStore.receiptText(e))
                         LedgerStore.setAck(e.id, AckStatus.SENT)
-                    }) { Text("Receipt") }
+                    }) { Text(if (LedgerStore.phoneFor(e.party) != null) "Receipt →chat" else "Receipt") }
                 } else {
                     OutlinedButton(onClick = {
                         LedgerStore.setAck(
