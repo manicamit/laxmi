@@ -1,70 +1,163 @@
 package com.laxmi.app.ui
 
-import android.app.Activity
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
+import com.laxmi.app.agents.Extractor
+import com.laxmi.app.audio.AudioDecoder
 import com.laxmi.app.data.AckStatus
 import com.laxmi.app.data.LedgerStore
+import com.laxmi.app.ui.theme.LaxmiTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
- * Invisible share target: "share the reply into Laxmi and it understands".
- * Consent-preserving automation — the user hands over exactly one message via
- * the share sheet; nothing is ever read in the background.
- *
- * v0 heuristics: yes/no keywords update the most recent SENT receipt (party
- * name match wins if the text contains one). Anything else is stored as an
- * unfiled text note for the pipeline.
+ * Share target for WhatsApp content:
+ *  - text/plain : ack replies ("haan/nahi") update a pending receipt; other text
+ *    becomes an unfiled note. Invisible, auto-handled.
+ *  - audio      : decode to WAV, ask which party it's for (ground-truth tag),
+ *    then extract into the ledger.
  */
-class ShareReceiverActivity : Activity() {
+class ShareReceiverActivity : ComponentActivity() {
 
-    private val yesWords = listOf("haan", "han", "ha ", "sahi", "thik", "theek", "ok", "yes", "👍")
-    private val noWords = listOf("nahi", "nhi", "galat", "no ", "wrong", "kam hai", "zyada hai")
+    private val yesWords = listOf("haan", "han", "sahi", "thik", "theek", "ok", "yes", "👍")
+    private val noWords = listOf("nahi", "nhi", "galat", "wrong", "kam hai", "zyada hai")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val text = intent?.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
-        if (intent?.action == Intent.ACTION_SEND && text.isNotEmpty()) {
-            handleShared(text.lowercase(), text)
+        val type = intent?.type.orEmpty()
+        if (intent?.action != Intent.ACTION_SEND) { finish(); return }
+
+        when {
+            type == "text/plain" -> {
+                handleText(intent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty())
+                finish()
+            }
+            type.startsWith("audio/") -> {
+                val uri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                if (uri == null) { finish(); return }
+                setContent { LaxmiTheme { PartyPickerFlow(uri) } }
+            }
+            else -> finish()
         }
-        finish()
     }
 
-    private fun handleShared(lower: String, original: String) {
+    private fun handleText(original: String) {
+        if (original.isEmpty()) return
+        val lower = original.lowercase()
         val sent = LedgerStore.events.value
             .filter { it.ackStatus == AckStatus.SENT }
             .sortedByDescending { it.createdAt }
-
         val verdict = when {
             noWords.any { lower.contains(it) } -> AckStatus.DISPUTED
             yesWords.any { lower.contains(it) } -> AckStatus.CONFIRMED_BY_THEM
             else -> null
         }
-
         if (verdict != null && sent.isNotEmpty()) {
-            // Prefer a receipt whose party name appears in the reply; else newest.
             val target = sent.firstOrNull { lower.contains(it.party.lowercase()) } ?: sent.first()
             LedgerStore.setAck(target.id, verdict)
             val label = if (verdict == AckStatus.CONFIRMED_BY_THEM)
-                "✓ ${target.party} ne haan bola" else "⚠ ${target.party} ne dispute kiya — suno aur suljhao"
+                "✓ ${target.party} ne haan bola" else "⚠ ${target.party} ne dispute kiya"
             Toast.makeText(this, "Laxmi: $label", Toast.LENGTH_LONG).show()
         } else {
-            // Not an ack reply — keep it as an unfiled note so nothing is lost.
-            LedgerStore.append(
-                com.laxmi.app.data.LedgerEvent(
-                    party = "Unfiled",
-                    kind = com.laxmi.app.data.EventKind.COMMITMENT,
-                    direction = com.laxmi.app.data.Direction.OWED_TO_ME,
-                    type = "unfiled",
-                    amountPaise = null, quantity = null, item = null, duePhrase = null,
-                    firmness = "tentative", confidence = 0.0,
-                    quote = original,
-                    sourceTag = "whatsapp-text",
-                    sourceAudio = null, sourceText = original,
-                    status = com.laxmi.app.data.EventStatus.PENDING_REVIEW,
-                )
-            )
-            Toast.makeText(this, "Laxmi: note save ho gaya — Inbox mein hai", Toast.LENGTH_LONG).show()
+            Extractor.ingest(text = original, sourceTag = "whatsapp-text")
+            Toast.makeText(this, "Laxmi: note save ho gaya — Inbox mein", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @OptIn(ExperimentalLayoutApi::class)
+    @Composable
+    private fun PartyPickerFlow(uri: Uri) {
+        var working by remember { mutableStateOf(false) }
+        var newName by remember { mutableStateOf("") }
+        val parties = remember { LedgerStore.partyNames() }
+
+        fun submit(party: String?) {
+            working = true
+            lifecycleScope.launch {
+                // Copy the shared audio NOW (the URI grant dies with this activity),
+                // then dismiss and let extraction run in the background.
+                val copied = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val f = java.io.File(cacheDir, "share_${System.nanoTime()}.audio")
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            f.outputStream().use { input.copyTo(it) }
+                        }
+                        f.absolutePath
+                    }.getOrNull()
+                }
+                if (copied == null) {
+                    Toast.makeText(applicationContext, "Laxmi: audio nahi mila", Toast.LENGTH_LONG).show()
+                    finish(); return@launch
+                }
+                Extractor.ingestSharedAudioFile(copied, party)
+                Toast.makeText(
+                    applicationContext,
+                    "Laxmi: ${party ?: "auto"} ke liye ho gaya — ledger mein aa jayega",
+                    Toast.LENGTH_LONG,
+                ).show()
+                finish()
+            }
+        }
+
+        Surface(color = Color(0xF2000000), modifier = Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("Kiske liye?", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+                if (working) {
+                    CircularProgressIndicator(color = Color.White)
+                    Text("Laxmi sun rahi hai…", color = Color.White)
+                } else {
+                    Text("Voice note kis party ka hai?", color = Color(0xCCFFFFFF))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AssistChip(onClick = { submit(null) }, label = { Text("Auto-detect") })
+                        parties.forEach { p ->
+                            AssistChip(onClick = { submit(p) }, label = { Text(p) })
+                        }
+                    }
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text("Naya naam") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(
+                        onClick = { submit(newName.ifBlank { null }) },
+                        enabled = newName.isNotBlank(),
+                    ) { Text("Is naam se add karo") }
+                }
+            }
         }
     }
 }

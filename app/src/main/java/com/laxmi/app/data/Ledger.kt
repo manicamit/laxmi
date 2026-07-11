@@ -173,11 +173,13 @@ object LedgerStore {
         sourceTag: String,
         sourceAudio: ByteArray?,
         sourceText: String?,
+        partyOverride: String? = null,
     ): LedgerEvent {
         val autoAccept = item.confidence >= 0.85 && item.firmness == "firm"
         return LedgerEvent(
-            party = item.party.trim().removeSuffix(" ji").removeSuffix(" bhai").trim()
-                .ifBlank { "Unknown" },
+            party = partyOverride?.takeIf { it.isNotBlank() }
+                ?: item.party.trim().removeSuffix(" ji").removeSuffix(" bhai").trim()
+                    .ifBlank { "Unknown" },
             kind = when (item.kind) {
                 "settlement" -> EventKind.SETTLEMENT
                 "correction" -> EventKind.CORRECTION
@@ -211,6 +213,14 @@ object LedgerStore {
             EventKind.CORRECTION -> 0 // corrections adjust via review, not math, in v0
         }
     }
+
+    /** Distinct known party names, most-recent first — for the share-in picker. */
+    fun partyNames(): List<String> =
+        _events.value
+            .filter { it.type != "unfiled" && it.party.isNotBlank() && it.party != "Unfiled" }
+            .sortedByDescending { it.createdAt }
+            .map { it.party }
+            .distinct()
 
     fun balances(all: List<LedgerEvent>): List<PartyBalance> =
         // Count everything not explicitly rejected, so the ledger updates the moment

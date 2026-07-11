@@ -82,6 +82,7 @@ class GemmaExtractionEngine(
                     val responseText = response.contents.contents
                         .filterIsInstance<Content.Text>()
                         .joinToString("") { it.text }
+                    Log.i(TAG, "raw extract response: ${responseText.take(500)}")
                     parseResponse(responseText)
                 }
             } catch (t: Throwable) {

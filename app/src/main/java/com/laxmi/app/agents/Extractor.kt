@@ -7,7 +7,10 @@ import com.laxmi.app.data.EventStatus
 import com.laxmi.app.data.LedgerEvent
 import com.laxmi.app.data.LedgerStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -36,7 +39,10 @@ object Extractor {
     lateinit var modelFile: File
         private set
 
+    private lateinit var appContext: Context
+
     fun init(context: Context) {
+        appContext = context.applicationContext
         modelFile = File(File(context.filesDir, "models").apply { mkdirs() }, "gemma-4-E4B-it.litertlm")
         if (modelFile.exists()) warm(context)
     }
@@ -85,10 +91,19 @@ object Extractor {
         audio: ByteArray? = null,
         text: String? = null,
         sourceTag: String,
+        partyOverride: String? = null,
         onDone: (Int) -> Unit = {},
     ) {
         scope.launch {
             busy.value = true
+            // Cold process (e.g. a share right after launch): wait for the engine
+            // to finish warming rather than filing "engine not ready".
+            if (engine == null) {
+                warm(appContext)
+                withTimeoutOrNull(120_000) {
+                    state.first { it == EngineState.READY || it == EngineState.ERROR }
+                }
+            }
             mutex.withLock {
                 val e = engine
                 if (e == null) {
@@ -104,7 +119,7 @@ object Extractor {
                             onDone(0)
                         } else {
                             result.items.forEach {
-                                LedgerStore.append(LedgerStore.fromExtraction(it, sourceTag, audio, text))
+                                LedgerStore.append(LedgerStore.fromExtraction(it, sourceTag, audio, text, partyOverride))
                             }
                             onDone(result.items.size)
                         }
@@ -123,6 +138,27 @@ object Extractor {
 
     suspend fun query(question: String, ledgerContext: String): String =
         mutex.withLock { engine?.query(question, ledgerContext) ?: "Engine not ready" }
+
+    /** Background share-in: decode a copied audio file, extract, notify. The UI
+     *  (share picker) has already dismissed — this runs fire-and-forget. */
+    fun ingestSharedAudioFile(path: String, partyOverride: String?) {
+        scope.launch {
+            val wav = withContext(Dispatchers.IO) { com.laxmi.app.audio.AudioDecoder.decodeToWav(path) }
+            runCatching { java.io.File(path).delete() }
+            if (wav == null) {
+                com.laxmi.app.Notifier.show(appContext, "Laxmi", "Voice note samajh nahi aaya")
+                return@launch
+            }
+            ingest(audio = wav, sourceTag = "whatsapp-audio", partyOverride = partyOverride) { count ->
+                val who = partyOverride ?: "auto"
+                com.laxmi.app.Notifier.show(
+                    appContext, "Laxmi",
+                    if (count > 0) "$who: $count entry ledger mein — Inbox mein check karo"
+                    else "Voice note mein koi commitment nahi mila",
+                )
+            }
+        }
+    }
 
     /** Streaming query: [onToken] receives the cumulative answer as it grows. */
     suspend fun streamQuery(question: String, ledgerContext: String, onToken: (String) -> Unit) {
