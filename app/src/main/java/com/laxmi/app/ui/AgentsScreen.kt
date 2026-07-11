@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -29,10 +30,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.laxmi.app.ui.theme.laxmi
 
 /** Track 2 surface: the cloud specialists Gemma delegates to. */
 @Composable
 fun AgentsScreen(vm: AppViewModel) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -44,6 +47,36 @@ fun AgentsScreen(vm: AppViewModel) {
                 "nahi. Sirf ek approved summary jaati hai; aapka raw data phone pe rehta hai.",
             style = MaterialTheme.typography.bodyMedium,
         )
+
+        // Open-goal planner: say anything, the agent figures out the plan.
+        var goal by remember { mutableStateOf("") }
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🧠 Laxmi se kuch bhi karwao", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "\"dhandha slow hai, kya karun?\" · \"50 hazar ka loan chahiye\" — " +
+                        "Laxmi khud plan banati hai.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = goal, onValueChange = { goal = it },
+                    label = { Text("Apna goal likho…") }, modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { if (goal.isNotBlank()) vm.requestPlanner(goal) }, enabled = goal.isNotBlank()) {
+                        Text("Plan banao")
+                    }
+                    RecordButton { wav -> vm.requestPlannerFromAudio(wav) }
+                }
+                Text(
+                    "Agent kar sakta: web research, hisaab, planning, draft. " +
+                        "Nahi kar sakta: paisa bhejna, message bhejna, ya aapki taraf se " +
+                        "commitment — woh aap khud karte ho.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = laxmi().muted,
+                )
+            }
+        }
         WorkflowCard(
             "🛒 Bazaar bhav — bachat agent",
             "Researcher (web se aaj ke market rate) → Analyst (code se compare) → " +
@@ -72,6 +105,24 @@ fun AgentsScreen(vm: AppViewModel) {
             "📋 GST registration guide",
             "Researcher → Planner: GST registration ke steps, documents, portal.",
         ) { vm.requestGuide("GST registration for a small business") }
+
+        // Standing background agent
+        var watching by remember { mutableStateOf(false) }
+        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("🔔 Bazaar bhav watch (background)", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Har hafte Laxmi khud market rate check karke batayegi agar sasta mil " +
+                        "sakta hai — app khole bina.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(onClick = {
+                    watching = !watching
+                    if (watching) com.laxmi.app.PriceWatchWorker.enable(ctx)
+                    else com.laxmi.app.PriceWatchWorker.disable(ctx)
+                }) { Text(if (watching) "Watch ON — band karo" else "Weekly watch chalu karo") }
+            }
+        }
     }
 }
 
@@ -143,6 +194,9 @@ fun AgentRunOverlay(vm: AppViewModel) {
                                     }
                                     context.startActivity(Intent.createChooser(send, "Bhejo"))
                                 }) { Text("WhatsApp bhejo") }
+                                OutlinedButton(onClick = { FileShare.shareText(context, s.title, r.text) }) {
+                                    Text("📄 File")
+                                }
                             }
                             // Follow-up: continues the SAME agent session (sandbox + context).
                             var followText by remember(s) { mutableStateOf("") }

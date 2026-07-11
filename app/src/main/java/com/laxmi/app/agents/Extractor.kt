@@ -151,6 +151,24 @@ object Extractor {
     suspend fun generateOnDevice(prompt: String): String =
         mutex.withLock { engine?.generate(prompt) ?: "" }
 
+    /** On-device: spoken goal (audio) → short text goal. Raw audio stays on device. */
+    suspend fun goalFromAudio(audio: ByteArray): String =
+        mutex.withLock {
+            engine?.generateFromAudio(
+                audio,
+                "Ye voice note ek dukaandaar ka hai. Ek chhoti line mein Hinglish mein " +
+                    "batao woh kya chahte hain (goal). Sirf goal likho, aur kuch nahi.",
+            ) ?: ""
+        }
+
+    /** Fetch a specific derived slice by name — for the agent's NEED_DATA tool. */
+    fun derivedSlice(kind: String): String = when (kind.trim().lowercase()) {
+        "credit" -> creditSummary()
+        "purchases" -> purchaseContext()
+        "goods" -> goodsContext()
+        else -> "(unknown slice)"
+    }
+
     /** Background share-in: decode a copied audio file, extract, notify. The UI
      *  (share picker) has already dismissed — this runs fire-and-forget. */
     fun ingestSharedAudioFile(path: String, partyOverride: String?, fromMe: Boolean) {

@@ -131,7 +131,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Cloud specialists Gemma delegates to (Track 2 — Antigravity) ----
 
     // Outward (cloud) workflows only — inward jobs (reminders, insights) are on-device.
-    enum class Workflow { DOSSIER, MARKET, GUIDE, SCHEMES, DEMAND }
+    enum class Workflow { DOSSIER, MARKET, GUIDE, SCHEMES, DEMAND, PLANNER }
 
     sealed interface AgentResult {
         data class Messages(val items: List<com.laxmi.app.missions.CollectionsCampaign.CampaignMessage>) : AgentResult
@@ -168,8 +168,32 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             Workflow.SCHEMES -> { title = "Sarkari schemes"; payload = com.laxmi.app.agents.Extractor.creditSummary() }
             Workflow.DEMAND -> { title = "Festival demand"; payload = com.laxmi.app.agents.Extractor.goodsContext() }
             Workflow.GUIDE -> { title = "Guide"; payload = "" } // set via requestGuide
+            Workflow.PLANNER -> { title = "Laxmi ka plan"; payload = "" } // set via requestPlanner
         }
         agentRun.value = AgentRun.Consent(wf, title, payload, debtors)
+    }
+
+    private fun plannerBrief(goal: String): String =
+        "GOAL: $goal\n\nBusiness summary (anonymized, no names):\n" +
+            com.laxmi.app.agents.Extractor.creditSummary() +
+            "\nGoods: " + com.laxmi.app.agents.Extractor.goodsContext()
+
+    /** Open-goal planner from typed text. */
+    fun requestPlanner(goal: String) {
+        agentRun.value = AgentRun.Consent(Workflow.PLANNER, "Laxmi ka plan", plannerBrief(goal), emptyList())
+    }
+
+    /** Open-goal planner from a spoken goal — audio transcribed ON-DEVICE first. */
+    fun requestPlannerFromAudio(wav: ByteArray) {
+        agentRun.value = AgentRun.Running("Laxmi ka plan", listOf("🎤 Aapki baat samajh rahi hoon (phone pe)…"))
+        viewModelScope.launch {
+            val goal = com.laxmi.app.agents.Extractor.goalFromAudio(wav)
+            if (goal.isBlank()) {
+                agentRun.value = AgentRun.Failed("Laxmi ka plan", "Awaaz samajh nahi aayi, dobara bolo")
+            } else {
+                agentRun.value = AgentRun.Consent(Workflow.PLANNER, "Laxmi ka plan", plannerBrief(goal), emptyList())
+            }
+        }
     }
 
     /** Step-by-step guidance (outward: needs the current real-world process). The
@@ -228,6 +252,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         pushStep("🧑‍⚖️ Advisor stock-up plan bana raha hai…")
                         val advice = mc.run(wf.demandAdvisorPrompt(c.payload, research.text), research.interactionId, research.environmentId)
                         agentRun.value = AgentRun.Done(c.title, AgentResult.Report(advice.text), advice.interactionId, advice.environmentId)
+                    }
+                    Workflow.PLANNER -> {
+                        pushStep("🧠 Planner soch raha hai — kya karna hai…")
+                        var res = mc.run(wf.plannerPrompt(c.payload))
+                        // #3 agent-initiated data tool: honour up to 2 NEED_DATA requests.
+                        var guard = 0
+                        while (res.text.contains("NEED_DATA:", ignoreCase = true) && guard++ < 2) {
+                            val kind = res.text.substringAfter("NEED_DATA:").trim()
+                                .takeWhile { !it.isWhitespace() }
+                            pushStep("🔐 Agent ne '$kind' data maanga — consent ke andar de rahe hain…")
+                            val slice = com.laxmi.app.agents.Extractor.derivedSlice(kind)
+                            res = mc.run("Requested data ($kind), anonymized:\n$slice\n\nAb plan poora karo.",
+                                res.interactionId, res.environmentId)
+                        }
+                        // #2 verify / self-correct loop (one pass).
+                        pushStep("🛡️ Critic plan verify kar raha hai…")
+                        val critique = mc.run(wf.criticPrompt(res.text), res.interactionId, res.environmentId)
+                        if (!critique.text.trim().startsWith("OK", ignoreCase = true)) {
+                            pushStep("↻ Critic ne sudhaar maanga — Planner theek kar raha hai…")
+                            res = mc.run("Critic feedback: ${critique.text}\nIsko theek karke final " +
+                                "spoken-Hinglish action plan do.", critique.interactionId, critique.environmentId)
+                        }
+                        agentRun.value = AgentRun.Done(c.title, AgentResult.Report(res.text), res.interactionId, res.environmentId)
                     }
                 }
             } catch (t: Throwable) {

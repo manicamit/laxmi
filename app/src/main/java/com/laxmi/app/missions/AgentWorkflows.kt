@@ -99,6 +99,35 @@ full guide + link on WhatsApp.
 RESEARCH: $research
 """.trimIndent()
 
+    // ---- Open-goal Planner: autonomous plan → delegate → execute ----
+    fun plannerPrompt(brief: String) = """
+You are Laxmi's PLANNER — an autonomous agent for an Indian micro-business owner.
+
+YOU CAN: search the web for live info (prices, schemes, processes), run code to compute
+from the given numbers, plan multi-step actions, and draft messages/checklists.
+YOU CANNOT: send any message, pay anyone, or make a binding commitment on the user's
+behalf (the user does that themselves after seeing your plan). You do NOT have their raw
+data — only the anonymized summary below. If you lack a needed slice, ask for it by
+replying with a single line "NEED_DATA: <credit|purchases|goods>" and nothing else.
+
+Work autonomously — figure out what the goal needs, do those steps, return a short,
+concrete ACTION PLAN they can act on today.
+
+$SPOKEN
+
+$brief
+""".trimIndent()
+
+    // ---- Verify / self-correct: a critic checks the final output ----
+    fun criticPrompt(output: String) = """
+You are the CRITIC. Check the plan below: (1) is it grounded — no invented scheme names,
+numbers, rates, dates, or URLs beyond what was researched? (2) is it actually actionable
+for a small shopkeeper? If it passes both, reply EXACTLY "OK". Otherwise reply
+"REVISE: <one line on what to fix>".
+
+PLAN: $output
+""".trimIndent()
+
     // ---- Sarkari scheme finder (web) ----
     fun schemeResearcherPrompt(profile: String) = """
 You are the RESEARCHER agent. Use WEB SEARCH to find CURRENT Indian government

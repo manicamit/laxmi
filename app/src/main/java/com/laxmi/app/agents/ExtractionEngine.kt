@@ -42,6 +42,10 @@ interface ExtractionEngine {
      * composing reminders locally. */
     suspend fun generate(prompt: String): String
 
+    /** On-device: turn a spoken goal (audio) into a short text goal. Keeps the raw
+     * audio on the phone — only the derived text goes onward. */
+    suspend fun generateFromAudio(audio: ByteArray, prompt: String): String
+
     /** Streaming variant: emits the cumulative answer text as tokens arrive. */
     fun queryStream(question: String, ledgerContext: String): kotlinx.coroutines.flow.Flow<String>
 

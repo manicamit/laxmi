@@ -132,6 +132,20 @@ $ledgerContext
 QUESTION: $question
 """.trimIndent()
 
+    override suspend fun generateFromAudio(audio: ByteArray, prompt: String): String =
+        withContext(Dispatchers.IO) {
+            val e = engine ?: return@withContext ""
+            try {
+                e.createConversation().use { conv ->
+                    conv.sendMessage(Contents.of(Content.Text(prompt), Content.AudioBytes(audio)))
+                        .contents.contents.filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }.trim()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "generateFromAudio failed", t); ""
+            }
+        }
+
     override suspend fun extractImage(imagePath: String): ExtractionResult =
         withContext(Dispatchers.IO) {
             val e = engine ?: return@withContext ExtractionResult.EngineFailure("Engine not ready")
