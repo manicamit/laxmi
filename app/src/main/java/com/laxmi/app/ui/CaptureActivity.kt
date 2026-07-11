@@ -2,6 +2,14 @@ package com.laxmi.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.widget.Toast
@@ -132,9 +140,13 @@ class CaptureActivity : ComponentActivity() {
                             onStop = { stopAndAssist() },
                             onCancel = { recorder.stop(); finish() },
                         )
-                        AssistUi.Thinking -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color.White)
-                            Text("Laxmi soch rahi hai…", color = Color.White, modifier = Modifier.padding(top = 12.dp))
+                        AssistUi.Thinking -> Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            CircularProgressIndicator(color = Color(0xFFE6B35C))
+                            Text("Laxmi soch rahi hai…", color = Color.White,
+                                style = MaterialTheme.typography.titleMedium)
                         }
                         is AssistUi.Answer -> {
                             // Debounce: only speak once the streamed text settles
@@ -145,16 +157,20 @@ class CaptureActivity : ComponentActivity() {
                             }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(18.dp),
                             ) {
-                                Text(s.text, color = Color.White, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                                Text("🪔 Laxmi", color = Color(0xFFE6B35C),
+                                    style = MaterialTheme.typography.labelLarge)
+                                Text(s.text, color = Color.White, textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.titleMedium)
                                 Button(
                                     onClick = { tts?.stop(); startFreshRecording(); ui = AssistUi.Recording },
                                     modifier = Modifier.size(84.dp),
                                     shape = CircleShape,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E2F23)),
                                 ) { Text("🎤", style = MaterialTheme.typography.headlineMedium) }
-                                Text("phir se bolo", color = Color(0xBBFFFFFF))
+                                Text("phir se bolo", color = Color(0xBBFFFFFF),
+                                    style = MaterialTheme.typography.labelMedium)
                                 OutlinedButton(onClick = { finish() }) { Text("Theek hai", color = Color.White) }
                             }
                         }
@@ -209,19 +225,37 @@ private fun RecordingView(onStop: () -> Unit, onCancel: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) { kotlinx.coroutines.delay(1000); seconds++ }
     }
+    // Gentle pulse on the mic to signal "listening".
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val scale by pulse.animateFloat(
+        initialValue = 1f, targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse), label = "s",
+    )
+    val gold = Color(0xFFE6B35C)
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
-        Text("🎤 Bolo…", style = MaterialTheme.typography.headlineMedium, color = Color.White)
-        Text("kaam bhi likhwao, ya sawaal bhi poocho", color = Color(0xBBFFFFFF), textAlign = TextAlign.Center)
-        Text("%02d:%02d".format(seconds / 60, seconds % 60), color = Color.White)
-        Button(
-            onClick = onStop,
-            modifier = Modifier.size(96.dp),
-            shape = CircleShape,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E2F23)),
-        ) { Text("■", style = MaterialTheme.typography.headlineMedium, color = Color.White) }
+        Text("Laxmi sun rahi hai", style = MaterialTheme.typography.headlineSmall, color = Color.White)
+        Text("kaam likhwao · sawaal poocho · reminder bhejwao",
+            color = Color(0xBBFFFFFF), textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyMedium)
+        Text("%02d:%02d".format(seconds / 60, seconds % 60),
+            color = gold, style = MaterialTheme.typography.titleLarge)
+        // Pulsing halo + stop button
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp)) {
+            Box(
+                Modifier.size(120.dp).graphicsLayer { scaleX = scale; scaleY = scale }
+                    .clip(CircleShape).background(Color(0x33E6B35C)),
+            )
+            Button(
+                onClick = onStop,
+                modifier = Modifier.size(96.dp),
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E2F23)),
+            ) { Text("■", style = MaterialTheme.typography.headlineMedium, color = Color.White) }
+        }
+        Text("tap to finish", color = Color(0x88FFFFFF), style = MaterialTheme.typography.labelMedium)
         OutlinedButton(onClick = onCancel) { Text("Band karo", color = Color.White) }
     }
 }

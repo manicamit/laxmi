@@ -1,17 +1,26 @@
 package com.laxmi.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -21,9 +30,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import android.content.Intent
 import com.laxmi.app.audio.EvidencePlayer
@@ -32,6 +44,7 @@ import com.laxmi.app.data.Direction
 import com.laxmi.app.data.EventStatus
 import com.laxmi.app.data.LedgerEvent
 import com.laxmi.app.data.LedgerStore
+import com.laxmi.app.ui.theme.laxmi
 
 private fun paiseToRupees(paise: Long): String {
     val rupees = paise / 100
@@ -41,44 +54,52 @@ private fun paiseToRupees(paise: Long): String {
 @Composable
 fun LedgerScreen(vm: AppViewModel) {
     val balances by vm.balances.collectAsState()
+    val c = laxmi()
     val owedToMe = balances.filter { it.netPaise > 0 }.sumOf { it.netPaise }
     val iOwe = balances.filter { it.netPaise < 0 }.sumOf { -it.netPaise }
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("Laxmi", style = MaterialTheme.typography.headlineMedium)
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("🪔", style = MaterialTheme.typography.headlineMedium)
+                Text("Laxmi", style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.primary)
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { vm.runInsightsOnDevice() }) { Text("📊") }
-                OutlinedButton(onClick = { vm.sendDigestNow() }) { Text("🔔 Aaj ka hisaab") }
+                FilledTonalButton(onClick = { vm.runInsightsOnDevice() }, contentPadding = PaddingValues(12.dp)) { Text("📊") }
+                FilledTonalButton(onClick = { vm.sendDigestNow() }) { Text("🔔") }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column {
-                Text("Aane hain", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    paiseToRupees(owedToMe),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color(0xFF2E6B45),
-                )
-            }
-            Column {
-                Text("Dene hain", style = MaterialTheme.typography.labelMedium)
-                Text(
-                    paiseToRupees(iOwe),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
+
+        // Hero balance card
+        Card(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                BalanceStat("Aane hain", paiseToRupees(owedToMe), c.getGreen, "▲")
+                Box(Modifier.width(1.dp).height(46.dp).background(MaterialTheme.colorScheme.outline))
+                BalanceStat("Dene hain", paiseToRupees(iOwe), c.oweRed, "▼")
             }
         }
 
         if (balances.isEmpty()) {
-            Text(
-                "Ledger khaali hai. 🎤 se pehla voice note record karo.",
-                style = MaterialTheme.typography.bodyLarge,
-            )
+            Column(
+                Modifier.fillMaxWidth().padding(top = 40.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("📖", style = MaterialTheme.typography.displaySmall)
+                Text("Ledger khaali hai", style = MaterialTheme.typography.titleMedium)
+                Text("🎤 Bolo tab se pehla note record karo", color = c.muted)
+            }
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(balances, key = { it.party }) { b ->
                 PartyCard(b, vm)
             }
@@ -87,38 +108,86 @@ fun LedgerScreen(vm: AppViewModel) {
 }
 
 @Composable
+private fun BalanceStat(label: String, amount: String, color: Color, arrow: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = laxmi().muted)
+        Text(
+            amount,
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontFeatureSettings = "tnum", fontWeight = FontWeight.ExtraBold),
+            color = color,
+        )
+        Text(arrow, color = color, style = MaterialTheme.typography.labelSmall)
+    }
+}
+
+private val avatarTints = listOf(
+    Color(0xFFCB8A2E), Color(0xFF1E7A4D), Color(0xFF9E2F23),
+    Color(0xFF3E6B8A), Color(0xFF7A4DA0), Color(0xFFB2662A),
+)
+
+@Composable
 private fun PartyCard(b: com.laxmi.app.data.PartyBalance, vm: AppViewModel) {
     val context = LocalContext.current
+    val c = laxmi()
     val events by vm.events.collectAsState()
     var expanded by remember { mutableStateOf(false) }
     val partyEvents = events.filter {
         it.party == b.party && it.status != EventStatus.REJECTED && it.type != "unfiled"
     }
+    val tint = avatarTints[(b.party.hashCode() and 0x7fffffff) % avatarTints.size]
+    val amountColor = if (b.netPaise >= 0) c.getGreen else c.oweRed
 
-    Card(onClick = { expanded = !expanded }, modifier = Modifier.fillMaxWidth()) {
+    Card(
+        onClick = { expanded = !expanded },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+    ) {
         Column(Modifier.padding(14.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(b.party, style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // Avatar
+                Box(
+                    Modifier.size(44.dp).clip(CircleShape).background(tint.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center,
+                ) {
                     Text(
-                        "${partyEvents.size} promises · tap karo",
-                        style = MaterialTheme.typography.bodySmall,
+                        b.party.trim().take(1).uppercase(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = tint,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
-                Text(
-                    paiseToRupees(kotlin.math.abs(b.netPaise)),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = if (b.netPaise >= 0) Color(0xFF2E6B45)
-                    else MaterialTheme.colorScheme.error,
-                )
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(b.party, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${partyEvents.size} entries · tap for detail",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = c.muted,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        paiseToRupees(kotlin.math.abs(b.netPaise)),
+                        style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                        color = amountColor,
+                    )
+                    Text(
+                        if (b.netPaise >= 0) "aana hai" else "dena hai",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = amountColor,
+                    )
+                }
             }
             if (expanded) {
+                Spacer(Modifier.height(6.dp))
                 partyEvents.sortedByDescending { it.createdAt }.forEach { e ->
                     Row(
                         Modifier.fillMaxWidth().padding(top = 8.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.padding(end = 8.dp)) {
+                        Column(Modifier.padding(end = 8.dp).weight(1f)) {
                             Text(
                                 (if (e.direction == Direction.OWED_TO_ME) "🟢 " else "🔴 ") +
                                     (e.amountPaise?.let { paiseToRupees(it) }
@@ -127,22 +196,20 @@ private fun PartyCard(b: com.laxmi.app.data.PartyBalance, vm: AppViewModel) {
                                     (e.duePhrase?.let { " · ⏰ $it" } ?: ""),
                                 style = MaterialTheme.typography.bodyMedium,
                             )
-                            Text(
-                                "\"${e.quote}\"",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
+                            Text("\"${e.quote}\"", style = MaterialTheme.typography.bodySmall, color = c.muted)
                         }
                         if (e.sourceAudio != null) {
-                            OutlinedButton(onClick = { EvidencePlayer.play(context, e.sourceAudio) }) {
-                                Text("▶")
-                            }
+                            FilledTonalButton(
+                                onClick = { EvidencePlayer.play(context, e.sourceAudio) },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                            ) { Text("▶ Suno") }
                         }
                     }
                 }
                 if (b.netPaise > 0) {
-                    OutlinedButton(
+                    Button(
                         onClick = { vm.requestCollections(b.party) },
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier.padding(top = 10.dp),
                     ) { Text("Reminder bhejo") }
                 }
             }
