@@ -35,9 +35,19 @@ interface ExtractionEngine {
      * question's language. */
     suspend fun query(question: String, ledgerContext: String): String
 
+    /** Streaming variant: emits the cumulative answer text as tokens arrive. */
+    fun queryStream(question: String, ledgerContext: String): kotlinx.coroutines.flow.Flow<String>
+
+    /** Spoken-question streaming answer (always the ASK path). */
+    fun queryAudioStream(audio: ByteArray, ledgerContext: String): kotlinx.coroutines.flow.Flow<String>
+
     /** Unified assistant turn: decides whether the audio states commitments or
      *  asks a question, and returns one or the other. */
     suspend fun assist(audio: ByteArray, ledgerContext: String): AssistResult
+
+    /** Streaming unified turn: emits cumulative raw router text (intent line +
+     *  payload) so the caller can show an ASK answer as it types out. */
+    fun assistStream(audio: ByteArray, ledgerContext: String): kotlinx.coroutines.flow.Flow<String>
 }
 
 sealed interface AssistResult {

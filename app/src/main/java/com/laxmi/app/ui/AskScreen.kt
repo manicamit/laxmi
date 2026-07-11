@@ -65,7 +65,10 @@ fun AskScreen(vm: AppViewModel) {
             label = { Text("Sawaal likho ya niche se chuno") },
             modifier = Modifier.fillMaxWidth(),
         )
-        Button(onClick = { if (question.isNotBlank()) vm.ask(question) }) { Text("Poocho") }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { if (question.isNotBlank()) vm.ask(question) }) { Text("Poocho") }
+            RecordButton { wav -> vm.askAudio(wav) }
+        }
         SUGGESTIONS.forEach { s ->
             OutlinedButton(onClick = { question = s; vm.ask(s) }) { Text(s) }
         }

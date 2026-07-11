@@ -33,8 +33,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import com.laxmi.app.agents.EngineState
 import com.laxmi.app.agents.Extractor
 import com.laxmi.app.audio.VoiceRecorder
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 
 private sealed interface AssistUi {
@@ -50,8 +55,14 @@ private sealed interface AssistUi {
  */
 class CaptureActivity : ComponentActivity() {
 
-    private val recorder = VoiceRecorder()
+    // Fresh recorder per turn — never reuse a buffer across recordings.
+    private var recorder = VoiceRecorder()
     private var tts: TextToSpeech? = null
+
+    private fun startFreshRecording() {
+        recorder = VoiceRecorder()
+        recorder.start()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -65,35 +76,60 @@ class CaptureActivity : ComponentActivity() {
             finish(); return
         }
 
-        tts = TextToSpeech(this) { if (it == TextToSpeech.SUCCESS) tts?.language = Locale("hi", "IN") }
-        recorder.start()
+        // TTS is only needed if the turn turns out to be a question — init it lazily
+        // so its engine binding never janks the recording overlay.
+        startFreshRecording()
 
         setContent {
             var ui by remember { mutableStateOf<AssistUi>(AssistUi.Recording) }
+
+            fun runAssist(wav: ByteArray) {
+                Extractor.assist(
+                    audio = wav,
+                    onAnswer = { ans -> runOnUiThread { ui = AssistUi.Answer(ans) } },
+                    onRecorded = { count ->
+                        runOnUiThread {
+                            Toast.makeText(
+                                applicationContext,
+                                if (count > 0) "Laxmi: $count entry add hui" else "Laxmi: kuch commitment nahi mila",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            finish()
+                        }
+                    },
+                    onAction = { action, party -> runOnUiThread { launchActionShare(action, party) } },
+                )
+            }
+
+            fun stopAndAssist() {
+                val wav = recorder.stop()
+                ui = AssistUi.Thinking
+                if (Extractor.isReady) {
+                    runAssist(wav)
+                } else {
+                    // Cold engine: wait for it to warm (don't misfile a question as a
+                    // recording), with a bounded fallback to the queue.
+                    Extractor.warm(applicationContext)
+                    lifecycleScope.launch {
+                        val ready = withTimeoutOrNull(90_000) {
+                            Extractor.state.first { it == EngineState.READY || it == EngineState.ERROR }
+                            Extractor.isReady
+                        } ?: false
+                        if (ready) runAssist(wav)
+                        else {
+                            Extractor.enqueue(wav, "assist")
+                            Toast.makeText(applicationContext, "Laxmi: ho gaya, ledger mein aa jayega", Toast.LENGTH_LONG).show()
+                            finish()
+                        }
+                    }
+                }
+            }
 
             Surface(color = Color(0xE6000000), modifier = Modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {
                     when (val s = ui) {
                         AssistUi.Recording -> RecordingView(
-                            onStop = {
-                                val wav = recorder.stop()
-                                ui = AssistUi.Thinking
-                                Extractor.assist(
-                                    audio = wav,
-                                    onRecorded = { count ->
-                                        runOnUiThread {
-                                            Toast.makeText(
-                                                applicationContext,
-                                                if (count > 0) "Laxmi: $count entry add hui" else "Laxmi: kuch commitment nahi mila",
-                                                Toast.LENGTH_LONG,
-                                            ).show()
-                                            finish()
-                                        }
-                                    },
-                                    onAnswer = { ans -> runOnUiThread { ui = AssistUi.Answer(ans) } },
-                                    onAction = { action, party -> runOnUiThread { launchActionShare(action, party) } },
-                                )
-                            },
+                            onStop = { stopAndAssist() },
                             onCancel = { recorder.stop(); finish() },
                         )
                         AssistUi.Thinking -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -101,17 +137,43 @@ class CaptureActivity : ComponentActivity() {
                             Text("Laxmi soch rahi hai…", color = Color.White, modifier = Modifier.padding(top = 12.dp))
                         }
                         is AssistUi.Answer -> {
+                            // Debounce: only speak once the streamed text settles
+                            // (each token change relaunches + cancels this).
                             LaunchedEffect(s.text) {
-                                tts?.speak(s.text, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
+                                kotlinx.coroutines.delay(700)
+                                speak(s.text)
                             }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(16.dp),
+                            ) {
                                 Text(s.text, color = Color.White, textAlign = TextAlign.Center, style = MaterialTheme.typography.titleMedium)
+                                Button(
+                                    onClick = { tts?.stop(); startFreshRecording(); ui = AssistUi.Recording },
+                                    modifier = Modifier.size(84.dp),
+                                    shape = CircleShape,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9E2F23)),
+                                ) { Text("🎤", style = MaterialTheme.typography.headlineMedium) }
+                                Text("phir se bolo", color = Color(0xBBFFFFFF))
                                 OutlinedButton(onClick = { finish() }) { Text("Theek hai", color = Color.White) }
                             }
                         }
                     }
                 }
             }
+        }
+    }
+
+    private fun speak(text: String) {
+        if (tts == null) {
+            tts = TextToSpeech(this) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    tts?.language = Locale("hi", "IN")
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
+                }
+            }
+        } else {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
         }
     }
 

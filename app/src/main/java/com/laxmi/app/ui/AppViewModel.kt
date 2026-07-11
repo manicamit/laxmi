@@ -106,4 +106,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             queryBusy.value = false
         }
     }
+
+    fun askAudio(wav: ByteArray) {
+        queryBusy.value = true
+        queryAnswer.value = null
+        Extractor.assist(
+            audio = wav,
+            onRecorded = { queryBusy.value = false },
+            onAnswer = { ans -> queryAnswer.value = ans; queryBusy.value = false },
+            onAction = { _, _ -> queryBusy.value = false },
+        )
+    }
 }

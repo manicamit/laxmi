@@ -9,5 +9,6 @@ class LaxmiApplication : Application() {
         super.onCreate()
         LedgerStore.init(filesDir)
         Extractor.init(this) // warms the single shared engine at process start
+        KeepWarmService.start(this) // pin the process so the model stays warm
     }
 }

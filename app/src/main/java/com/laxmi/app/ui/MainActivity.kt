@@ -63,11 +63,12 @@ class MainActivity : ComponentActivity() {
 fun LaxmiApp(vm: AppViewModel, fromAssist: Boolean = false) {
     val engineState by vm.engineState.collectAsState()
 
+    // Only the model IMPORT blocks the whole app. Once the file exists, the ledger /
+    // inbox / receipts all work while the engine warms in the background — capture and
+    // ask show their own "warming up" state (see CaptureScreen / AskScreen).
     when (engineState) {
         EngineState.NO_MODEL -> ModelSetupScreen(vm)
-        EngineState.LOADING -> LoadingScreen()
-        EngineState.ERROR -> ErrorScreen(vm)
-        EngineState.READY -> MainTabs(vm, if (fromAssist) 1 else 0)
+        else -> MainTabs(vm, if (fromAssist) 1 else 0)
     }
 }
 
@@ -121,6 +122,7 @@ private fun MainTabs(vm: AppViewModel, startTab: Int = 0) {
 @Composable
 private fun CaptureScreen(vm: AppViewModel) {
     val busy by vm.busy.collectAsState()
+    val engineState by vm.engineState.collectAsState()
     Column(
         Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp),
@@ -132,12 +134,21 @@ private fun CaptureScreen(vm: AppViewModel) {
                 "awaaz ke saboot ke saath.",
             style = MaterialTheme.typography.bodyMedium,
         )
+        // Recording never needs the engine — extraction happens after, when ready.
         RecordButton { wav ->
             vm.ingest(audio = wav, sourceTag = "mic")
         }
-        if (busy) {
-            CircularProgressIndicator()
-            Text("Samajh rahi hoon…", style = MaterialTheme.typography.bodyMedium)
+        when {
+            busy -> {
+                CircularProgressIndicator()
+                Text("Samajh rahi hoon…", style = MaterialTheme.typography.bodyMedium)
+            }
+            engineState != EngineState.READY -> {
+                Text(
+                    "(Engine warm ho raha hai — bol sakte ho, samajhne mein thoda time lagega)",
+                    style = MaterialTheme.typography.labelMedium,
+                )
+            }
         }
     }
 }

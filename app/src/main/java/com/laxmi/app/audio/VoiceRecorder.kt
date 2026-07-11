@@ -29,17 +29,19 @@ class VoiceRecorder {
     fun start() {
         if (!recording.compareAndSet(false, true)) return
         buffer.reset()
-        val minBuf = AudioRecord.getMinBufferSize(
-            SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
-        )
-        val record = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            SAMPLE_RATE,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            minBuf * 4,
-        )
+        // All AudioRecord setup happens on the recording thread so the caller (UI)
+        // returns instantly — otherwise construction + startRecording jank the frame.
         thread = Thread {
+            val minBuf = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
+            )
+            val record = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                minBuf * 4,
+            )
             val chunk = ByteArray(minBuf)
             record.startRecording()
             try {

@@ -61,7 +61,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // 1.10+ required: LiteRT-LM's sendMessageAsync uses SendChannel.close$default,
+    // absent in 1.9.0 (crashes streaming with NoSuchMethodError).
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
     // On-device Gemma inference — LiteRT-LM (successor to mediapipe tasks-genai,
     // which is now maintenance-only). If this coordinate fails to resolve, check

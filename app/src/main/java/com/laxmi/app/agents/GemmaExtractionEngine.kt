@@ -10,6 +10,7 @@ import com.google.ai.edge.litertlm.EngineConfig
 import com.laxmi.app.util.extractJsonArray
 import com.laxmi.app.util.extractJsonObject
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -117,6 +118,95 @@ QUESTION: $question
             }
         }
 
+    private fun queryPrompt(question: String, ledgerContext: String) = """
+You are Laxmi, a ledger assistant for an Indian small business. Below is the
+user's ledger. Answer their question briefly and directly, in the same language
+the question is asked in (Hinglish stays Hinglish). Use ₹ amounts from the
+ledger only — never invent numbers. If the ledger doesn't answer it, say so.
+
+LEDGER:
+$ledgerContext
+
+QUESTION: $question
+""".trimIndent()
+
+    override fun queryStream(question: String, ledgerContext: String) =
+        kotlinx.coroutines.flow.flow {
+            val e = engine ?: run { emit("Engine not ready"); return@flow }
+            e.createConversation().use { conv ->
+                var acc = ""
+                conv.sendMessageAsync(Contents.of(Content.Text(queryPrompt(question, ledgerContext))))
+                    .collect { msg ->
+                        val t = msg.contents.contents
+                            .filterIsInstance<Content.Text>().joinToString("") { it.text }
+                        // Robust to cumulative-vs-delta streaming semantics.
+                        acc = if (t.startsWith(acc)) t else acc + t
+                        emit(acc.trim())
+                    }
+            }
+        }.flowOn(Dispatchers.IO)
+
+    override fun queryAudioStream(audio: ByteArray, ledgerContext: String) =
+        kotlinx.coroutines.flow.flow {
+            val e = engine ?: run { emit("Engine not ready"); return@flow }
+            val prompt = """
+You are Laxmi, a ledger assistant for an Indian small business. The user's spoken
+question is in the audio. Answer briefly and directly in the question's language
+(Hinglish stays Hinglish), using only the ledger below. Never invent numbers.
+
+LEDGER:
+$ledgerContext
+""".trimIndent()
+            e.createConversation().use { conv ->
+                var acc = ""
+                conv.sendMessageAsync(Contents.of(Content.Text(prompt), Content.AudioBytes(audio)))
+                    .collect { msg ->
+                        val t = msg.contents.contents
+                            .filterIsInstance<Content.Text>().joinToString("") { it.text }
+                        acc = if (t.startsWith(acc)) t else acc + t
+                        emit(acc.trim())
+                    }
+            }
+        }.flowOn(Dispatchers.IO)
+
+    private fun routerPrompt(ledgerContext: String) = """
+You are Laxmi, an Indian small-business ledger assistant. Listen to the audio.
+Decide the user's intent and reply starting with exactly one intent line:
+
+- "INTENT: RECORD" — they are stating a new commitment/payment/delivery. Follow
+  it with the extraction JSON array (schema below).
+- "INTENT: ASK" — they are asking about their existing ledger. Follow it with a
+  short direct answer in the question's language (Hinglish stays Hinglish), using
+  only the ledger.
+- "INTENT: ACTION" — they are telling you to DO something for a party. Follow it
+  with a JSON object {"action":"remind"|"receipt","party":"<name>"}.
+  "remind" = send a payment reminder. "receipt" = send a confirmation.
+
+LEDGER:
+$ledgerContext
+
+EXTRACTION SCHEMA (for RECORD): a JSON array of objects with keys kind, party,
+direction (owed_to_me|i_owe), type, firmness, amount_phrase, amount_guess,
+quantity, item, due_phrase, refers_to_existing, confidence, quote.
+""".trimIndent()
+
+    /** Streams the cumulative raw router output (intent line + payload). */
+    override fun assistStream(audio: ByteArray, ledgerContext: String) =
+        kotlinx.coroutines.flow.flow {
+            val e = engine ?: run { emit("INTENT: ASK\nEngine not ready"); return@flow }
+            e.createConversation().use { conv ->
+                var acc = ""
+                conv.sendMessageAsync(
+                    Contents.of(Content.Text(routerPrompt(ledgerContext)), Content.AudioBytes(audio))
+                ).collect { msg ->
+                    val t = msg.contents.contents
+                        .filterIsInstance<Content.Text>().joinToString("") { it.text }
+                    acc = if (t.startsWith(acc)) t else acc + t
+                    emit(acc)
+                }
+            }
+        }.flowOn(Dispatchers.IO)
+
     override suspend fun assist(audio: ByteArray, ledgerContext: String): AssistResult =
         withContext(Dispatchers.IO) {
             val e = engine ?: return@withContext AssistResult.Failure("Engine not ready")
@@ -170,6 +260,9 @@ quantity, item, due_phrase, refers_to_existing, confidence, quote.
                 AssistResult.Failure(t.message ?: "assist error")
             }
         }
+
+    /** Public so the streaming router can reuse its own output without re-inferring. */
+    fun parseExtraction(raw: String): ExtractionResult = parseResponse(raw)
 
     private fun parseResponse(raw: String): ExtractionResult {
         val jsonText = extractJsonArray(raw)
