@@ -61,6 +61,11 @@ object LedgerStore {
         storageDir = dir
         val index = java.io.File(dir, "events.json")
         if (!index.exists()) return
+        // Load off the main thread — reading evidence audio bytes was hanging startup.
+        Thread { loadFrom(index, dir) }.start()
+    }
+
+    private fun loadFrom(index: java.io.File, dir: java.io.File) {
         runCatching {
             val arr = org.json.JSONArray(index.readText())
             val loaded = buildList {

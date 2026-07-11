@@ -143,7 +143,7 @@ class ShareReceiverActivity : ComponentActivity() {
                 Text("Kiske liye?", style = MaterialTheme.typography.headlineSmall, color = Color.White)
                 if (working) {
                     CircularProgressIndicator(color = Color.White)
-                    Text("Laxmi sun rahi hai…", color = Color.White)
+                    Text("Ledger mein add ho raha hai…", color = Color.White)
                 } else {
                     if (!isImage) {
                         Text("Kisne bola?", color = Color(0xCCFFFFFF))

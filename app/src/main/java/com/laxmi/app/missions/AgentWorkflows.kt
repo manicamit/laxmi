@@ -130,14 +130,13 @@ RESEARCH: $research
 """.trimIndent()
 
     // ---- Business insights (ON-DEVICE Gemma — inward, private) ----
+    // NOTE: on-device Gemma, spoken aloud — plain sentences, NO markdown/*/#/bullets.
     fun insightsPrompt(ledgerSummary: String) = """
-You are a BUSINESS ANALYST agent. Using CODE EXECUTION over the ledger summary,
-surface the 3-4 most useful insights for the shopkeeper: who owes the most, who
-is chronically pending, net cashflow position, and one concrete suggestion for
-this week. Return a short, punchy report in Hinglish (bullet points). Under 150
-words.
+You are Laxmi analysing a shopkeeper's ledger. $SPOKEN
+Look at the ledger and say the 2-3 most useful things: kaun sabse zyada dega, kiska
+paisa atka hai, aur is hafte ka ek kaam. Plain spoken Hinglish sentences only.
 
-LEDGER SUMMARY:
+LEDGER:
 $ledgerSummary
 """.trimIndent()
 }

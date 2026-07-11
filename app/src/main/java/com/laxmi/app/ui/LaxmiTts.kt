@@ -22,7 +22,17 @@ object LaxmiTts {
     fun speak(context: Context, text: String) {
         init(context)
         tts?.let {
-            if (ready) it.speak(text, TextToSpeech.QUEUE_FLUSH, null, "laxmi")
+            if (ready) it.speak(sanitize(text), TextToSpeech.QUEUE_FLUSH, null, "laxmi")
         }
     }
+
+    /** Strip markdown so TTS never literally says "star", "hash", etc. */
+    fun sanitize(t: String): String = t
+        .replace(Regex("\\[(.*?)]\\(.*?\\)"), "$1")     // [text](url) -> text
+        .replace(Regex("https?://\\S+"), "")            // bare URLs
+        .replace(Regex("[*_`~#>|]"), "")                // md emphasis/heading/code
+        .replace(Regex("(?m)^\\s*[-•]\\s*"), "")        // bullet markers
+        .replace(Regex("\\n{2,}"), ". ")
+        .replace(Regex("[ \\t]{2,}"), " ")
+        .trim()
 }

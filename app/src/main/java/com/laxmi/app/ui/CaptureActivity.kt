@@ -181,15 +181,16 @@ class CaptureActivity : ComponentActivity() {
     }
 
     private fun speak(text: String) {
+        val clean = LaxmiTts.sanitize(text)
         if (tts == null) {
             tts = TextToSpeech(this) { status ->
                 if (status == TextToSpeech.SUCCESS) {
                     tts?.language = Locale("hi", "IN")
-                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
+                    tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
                 }
             }
         } else {
-            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
+            tts?.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "laxmi-answer")
         }
     }
 
