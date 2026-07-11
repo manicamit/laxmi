@@ -70,9 +70,11 @@ fun LedgerScreen(vm: AppViewModel) {
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 FilledTonalButton(onClick = { vm.runInsightsOnDevice() }, contentPadding = PaddingValues(12.dp)) { Text("📊") }
-                FilledTonalButton(onClick = { vm.sendDigestNow() }) { Text("🔔") }
+                FilledTonalButton(onClick = { vm.sendDigestNow() }, contentPadding = PaddingValues(12.dp)) { Text("🔔") }
+                FilledTonalButton(onClick = { vm.openStorage() }, contentPadding = PaddingValues(12.dp)) { Text("💾") }
             }
         }
+        StorageDialog(vm)
 
         // Hero balance card
         Card(
@@ -105,6 +107,37 @@ fun LedgerScreen(vm: AppViewModel) {
             }
         }
     }
+}
+
+@Composable
+private fun StorageDialog(vm: AppViewModel) {
+    val info by vm.storageInfo.collectAsState()
+    val s = info ?: return
+    val mb = "%.1f".format(s.bytes / 1_048_576.0)
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { vm.closeStorage() },
+        title = { Text("💾 Storage") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Awaaz ke saboot: $mb MB · ${s.clips} clips", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Purani entries ka audio hata sakte ho — hisaab (text + quote) rahega, " +
+                        "bas awaaz ki file jayegi. Sab kuch phone pe hi.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = { vm.clearEvidenceOlderThan(180) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("6 mahine+ purana audio hatao")
+                }
+                OutlinedButton(onClick = { vm.clearEvidenceOlderThan(30) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("1 mahine+ purana audio hatao")
+                }
+                OutlinedButton(onClick = { vm.clearEvidenceOlderThan(0) }, modifier = Modifier.fillMaxWidth()) {
+                    Text("Sara audio hatao")
+                }
+            }
+        },
+        confirmButton = { Button(onClick = { vm.closeStorage() }) { Text("Ho gaya") } },
+    )
 }
 
 @Composable

@@ -162,6 +162,32 @@ object LedgerStore {
             (due?.let { " ($it)" } ?: "") + ". Jab sahulat ho, clear kar dijiyega. Dhanyawad!"
     }
 
+    // ---- Storage management (audio evidence blobs accumulate) ----
+
+    fun audioBytesUsed(): Long =
+        storageDir?.listFiles { f -> f.name.endsWith(".wav") }?.sumOf { it.length() } ?: 0L
+
+    fun audioClipCount(): Int =
+        storageDir?.listFiles { f -> f.name.endsWith(".wav") }?.size ?: 0
+
+    /**
+     * Free evidence audio for entries older than [olderThanMillis] — deletes the
+     * blob, keeps the ledger text/quote. The record survives; the bytes don't.
+     * Returns how many clips were freed.
+     */
+    fun clearEvidence(olderThanMillis: Long): Int {
+        val dir = storageDir ?: return 0
+        var freed = 0
+        _events.value = _events.value.map { e ->
+            if (e.createdAt < olderThanMillis && e.sourceAudio != null) {
+                if (java.io.File(dir, "${e.id}.wav").delete()) freed++
+                e.copy(sourceAudio = null)
+            } else e
+        }
+        persist()
+        return freed
+    }
+
     /** Human-first WhatsApp receipt; the counterparty needs no app to validate. */
     fun receiptText(e: LedgerEvent): String {
         val what = e.amountPaise?.let { "₹%,d".format(it / 100) }

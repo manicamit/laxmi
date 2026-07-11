@@ -44,6 +44,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun confirm(id: String) = LedgerStore.setStatus(id, EventStatus.CONFIRMED)
     fun reject(id: String) = LedgerStore.setStatus(id, EventStatus.REJECTED)
 
+    // ---- Storage management ----
+    data class StorageInfo(val bytes: Long, val clips: Int)
+    val storageInfo = MutableStateFlow<StorageInfo?>(null) // non-null => dialog open
+
+    fun openStorage() {
+        storageInfo.value = StorageInfo(LedgerStore.audioBytesUsed(), LedgerStore.audioClipCount())
+    }
+    fun closeStorage() { storageInfo.value = null }
+
+    /** Free evidence audio older than [days] (keeps the ledger text). */
+    fun clearEvidenceOlderThan(days: Int) {
+        val cutoff = System.currentTimeMillis() - days.toLong() * 86_400_000L
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            LedgerStore.clearEvidence(cutoff)
+            storageInfo.value = StorageInfo(LedgerStore.audioBytesUsed(), LedgerStore.audioClipCount())
+        }
+    }
+
     /** Post the "aaj ka hisaab" dues digest now (demo trigger for the daily worker). */
     fun sendDigestNow() {
         val owed = balances.value.filter { it.netPaise > 0 }
