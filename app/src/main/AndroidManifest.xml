@@ -35,6 +35,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Assistant surface: translucent overlay, records instantly, auto-detects
+             record-vs-ask. Bound to the assist gesture (long-press power / corner
+             swipe) once Laxmi is the default digital assistant. -->
+        <activity
+            android:name=".ui.CaptureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- Invisible share target: WhatsApp replies / texts shared into Laxmi. -->
         <activity
             android:name=".ui.ShareReceiverActivity"

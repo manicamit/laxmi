@@ -144,6 +144,19 @@ object LedgerStore {
         persist()
     }
 
+    /** Voice-action reminder text for a party, from their outstanding balance. */
+    fun reminderText(party: String): String {
+        val all = _events.value.filter {
+            it.party.equals(party, ignoreCase = true) &&
+                it.status != EventStatus.REJECTED && it.type != "unfiled"
+        }
+        val net = balances(all).firstOrNull()?.netPaise ?: 0
+        val amount = "₹%,d".format(kotlin.math.abs(net) / 100)
+        val due = all.firstOrNull { it.duePhrase != null }?.duePhrase
+        return "🙏 $party, ek chhota sa reminder: $amount ka hisaab pending hai" +
+            (due?.let { " ($it)" } ?: "") + ". Jab sahulat ho, clear kar dijiyega. Dhanyawad!"
+    }
+
     /** Human-first WhatsApp receipt; the counterparty needs no app to validate. */
     fun receiptText(e: LedgerEvent): String {
         val what = e.amountPaise?.let { "₹%,d".format(it / 100) }

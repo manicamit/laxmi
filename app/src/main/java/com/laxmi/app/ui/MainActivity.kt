@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.laxmi.app.agents.EngineState
 import com.laxmi.app.data.EventStatus
 import com.laxmi.app.ui.theme.LaxmiTheme
 import kotlinx.coroutines.Dispatchers
@@ -47,10 +48,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val fromAssist = intent?.action == android.content.Intent.ACTION_ASSIST
         setContent {
             LaxmiTheme {
                 Surface(Modifier.fillMaxSize()) {
-                    LaxmiApp(vm)
+                    LaxmiApp(vm, fromAssist)
                 }
             }
         }
@@ -58,20 +60,20 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun LaxmiApp(vm: AppViewModel) {
+fun LaxmiApp(vm: AppViewModel, fromAssist: Boolean = false) {
     val engineState by vm.engineState.collectAsState()
 
     when (engineState) {
         EngineState.NO_MODEL -> ModelSetupScreen(vm)
         EngineState.LOADING -> LoadingScreen()
         EngineState.ERROR -> ErrorScreen(vm)
-        EngineState.READY -> MainTabs(vm)
+        EngineState.READY -> MainTabs(vm, if (fromAssist) 1 else 0)
     }
 }
 
 @Composable
-private fun MainTabs(vm: AppViewModel) {
-    var tab by remember { mutableIntStateOf(0) }
+private fun MainTabs(vm: AppViewModel, startTab: Int = 0) {
+    var tab by remember { mutableIntStateOf(startTab) }
     val events by vm.events.collectAsState()
     val busy by vm.busy.collectAsState()
     val pendingCount = events.count { it.status == EventStatus.PENDING_REVIEW }

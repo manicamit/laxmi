@@ -8,6 +8,7 @@ import com.google.ai.edge.litertlm.Conversation
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.laxmi.app.util.extractJsonArray
+import com.laxmi.app.util.extractJsonObject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -113,6 +114,60 @@ QUESTION: $question
             } catch (t: Throwable) {
                 Log.e(TAG, "query failed", t)
                 "Query failed: ${t.message}"
+            }
+        }
+
+    override suspend fun assist(audio: ByteArray, ledgerContext: String): AssistResult =
+        withContext(Dispatchers.IO) {
+            val e = engine ?: return@withContext AssistResult.Failure("Engine not ready")
+            try {
+                e.createConversation().use { conv ->
+                    val router = """
+You are Laxmi, an Indian small-business ledger assistant. Listen to the audio.
+Decide the user's intent and reply starting with exactly one intent line:
+
+- "INTENT: RECORD" — they are stating a new commitment/payment/delivery. Follow
+  it with the extraction JSON array (schema below).
+- "INTENT: ASK" — they are asking about their existing ledger. Follow it with a
+  short direct answer in the question's language (Hinglish stays Hinglish), using
+  only the ledger.
+- "INTENT: ACTION" — they are telling you to DO something for a party. Follow it
+  with a JSON object {"action":"remind"|"receipt","party":"<name>"}.
+  "remind" = send a payment reminder ("Rajesh ko reminder bhejo").
+  "receipt" = send a confirmation of what was agreed ("Rajesh ko receipt bhejo",
+  "confirmation bhej do").
+
+LEDGER:
+$ledgerContext
+
+EXTRACTION SCHEMA (for RECORD): a JSON array of objects with keys kind, party,
+direction (owed_to_me|i_owe), type, firmness, amount_phrase, amount_guess,
+quantity, item, due_phrase, refers_to_existing, confidence, quote.
+""".trimIndent()
+                    val response = conv.sendMessage(
+                        Contents.of(Content.Text(router), Content.AudioBytes(audio))
+                    )
+                    val text = response.contents.contents
+                        .filterIsInstance<Content.Text>().joinToString("") { it.text }
+                    when {
+                        text.contains("INTENT: ACTION", ignoreCase = true) -> {
+                            val obj = extractJsonObject(text)?.let { org.json.JSONObject(it) }
+                            AssistResult.Action(
+                                action = obj?.optString("action", "remind") ?: "remind",
+                                party = obj?.optString("party", "") ?: "",
+                            )
+                        }
+                        text.contains("INTENT: ASK", ignoreCase = true) -> {
+                            val answer = text.substringAfter("INTENT: ASK", "")
+                                .substringAfter("\n").trim().ifBlank { text.trim() }
+                            AssistResult.Answer(answer)
+                        }
+                        else -> AssistResult.Commitments(parseResponse(text))
+                    }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "assist failed", t)
+                AssistResult.Failure(t.message ?: "assist error")
             }
         }
 

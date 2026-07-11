@@ -34,4 +34,16 @@ interface ExtractionEngine {
     /** Free-form question over a pre-serialized ledger context; answers in the
      * question's language. */
     suspend fun query(question: String, ledgerContext: String): String
+
+    /** Unified assistant turn: decides whether the audio states commitments or
+     *  asks a question, and returns one or the other. */
+    suspend fun assist(audio: ByteArray, ledgerContext: String): AssistResult
+}
+
+sealed interface AssistResult {
+    data class Commitments(val result: ExtractionResult) : AssistResult
+    data class Answer(val text: String) : AssistResult
+    /** Voice-triggered action, e.g. "Rajesh ko reminder WhatsApp pe bhejo". */
+    data class Action(val action: String, val party: String) : AssistResult
+    data class Failure(val error: String) : AssistResult
 }
