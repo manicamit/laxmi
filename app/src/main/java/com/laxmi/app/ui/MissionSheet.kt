@@ -107,5 +107,10 @@ fun MissionOverlay(vm: AppViewModel) {
                 Button(onClick = { vm.dismissMission() }) { Text("Theek hai") }
             },
         )
+
+        // Multi-agent campaign (Track 2) — UI wired in the Track 2 step.
+        is AppViewModel.MissionState.CampaignConsent,
+        is AppViewModel.MissionState.CampaignRunning,
+        is AppViewModel.MissionState.CampaignDone -> Unit
     }
 }

@@ -116,19 +116,26 @@ object Extractor {
                     is ExtractionResult.Success -> {
                         if (result.items.isEmpty()) {
                             LedgerStore.append(unfiled(audio, text, sourceTag, "no commitments"))
+                            com.laxmi.app.Notifier.show(appContext, "Laxmi", "Kuch samajh nahi aaya — dobara bolo (Inbox mein hai)")
                             onDone(0)
                         } else {
-                            result.items.forEach {
-                                LedgerStore.append(LedgerStore.fromExtraction(it, sourceTag, audio, text, partyOverride))
+                            val created = result.items.map {
+                                LedgerStore.fromExtraction(it, sourceTag, audio, text, partyOverride)
+                                    .also { ev -> LedgerStore.append(ev) }
                             }
-                            onDone(result.items.size)
+                            notifyResult(created)
+                            onDone(created.size)
                         }
                     }
                     is ExtractionResult.ParseFailure -> {
-                        LedgerStore.append(unfiled(audio, text, sourceTag, result.error)); onDone(0)
+                        LedgerStore.append(unfiled(audio, text, sourceTag, result.error))
+                        com.laxmi.app.Notifier.show(appContext, "Laxmi", "Samajhne mein dikkat — Inbox mein daal diya")
+                        onDone(0)
                     }
                     is ExtractionResult.EngineFailure -> {
-                        LedgerStore.append(unfiled(audio, text, sourceTag, result.error)); onDone(0)
+                        LedgerStore.append(unfiled(audio, text, sourceTag, result.error))
+                        com.laxmi.app.Notifier.show(appContext, "Laxmi", "Engine error — Inbox mein daal diya")
+                        onDone(0)
                     }
                 }
             }
@@ -149,14 +156,8 @@ object Extractor {
                 com.laxmi.app.Notifier.show(appContext, "Laxmi", "Voice note samajh nahi aaya")
                 return@launch
             }
-            ingest(audio = wav, sourceTag = "whatsapp-audio", partyOverride = partyOverride) { count ->
-                val who = partyOverride ?: "auto"
-                com.laxmi.app.Notifier.show(
-                    appContext, "Laxmi",
-                    if (count > 0) "$who: $count entry ledger mein — Inbox mein check karo"
-                    else "Voice note mein koi commitment nahi mila",
-                )
-            }
+            // ingest() posts the result notification centrally.
+            ingest(audio = wav, sourceTag = "whatsapp-audio", partyOverride = partyOverride)
         }
     }
 
@@ -274,6 +275,18 @@ object Extractor {
             }
             busy.value = false
         }
+    }
+
+    private fun notifyResult(created: List<LedgerEvent>) {
+        val pending = created.count { it.status == EventStatus.PENDING_REVIEW }
+        val confirmed = created.count { it.status == EventStatus.CONFIRMED }
+        val parties = created.map { it.party }.distinct().joinToString(", ")
+        val msg = when {
+            pending > 0 && confirmed > 0 -> "$parties: ${created.size} entry — $pending review ke liye Inbox mein"
+            pending > 0 -> "$parties: $pending entry Inbox mein — check kar lo"
+            else -> "$parties: $confirmed entry ledger mein add hui ✓"
+        }
+        com.laxmi.app.Notifier.show(appContext, "Laxmi", msg)
     }
 
     private fun unfiled(audio: ByteArray?, text: String?, sourceTag: String, reason: String) =

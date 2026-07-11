@@ -46,8 +46,19 @@ class MainActivity : ComponentActivity() {
 
     private val vm: AppViewModel by viewModels()
 
+    private val notifPermission = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { /* granted or not — notifications are best-effort */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 13+: notifications are silently dropped without this grant.
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         val fromAssist = intent?.action == android.content.Intent.ACTION_ASSIST
         setContent {
             LaxmiTheme {

@@ -45,7 +45,10 @@ fun LedgerScreen(vm: AppViewModel) {
     val iOwe = balances.filter { it.netPaise < 0 }.sumOf { -it.netPaise }
 
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Laxmi", style = MaterialTheme.typography.headlineMedium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Laxmi", style = MaterialTheme.typography.headlineMedium)
+            OutlinedButton(onClick = { vm.sendDigestNow() }) { Text("🔔 Aaj ka hisaab") }
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column {
                 Text("Aane hain", style = MaterialTheme.typography.labelMedium)

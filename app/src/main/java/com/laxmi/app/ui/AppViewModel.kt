@@ -44,6 +44,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun confirm(id: String) = LedgerStore.setStatus(id, EventStatus.CONFIRMED)
     fun reject(id: String) = LedgerStore.setStatus(id, EventStatus.REJECTED)
 
+    /** Post the "aaj ka hisaab" dues digest now (demo trigger for the daily worker). */
+    fun sendDigestNow() {
+        val owed = balances.value.filter { it.netPaise > 0 }
+        val ctx = getApplication<Application>()
+        if (owed.isEmpty()) {
+            com.laxmi.app.Notifier.show(ctx, "Aaj ka hisaab", "Koi due pending nahi — sab clear!")
+            return
+        }
+        val total = owed.sumOf { it.netPaise } / 100
+        val who = owed.take(3).joinToString(", ") { it.party }
+        com.laxmi.app.Notifier.show(
+            ctx, "Aaj ka hisaab",
+            "₹%,d aana hai — $who%s".format(total, if (owed.size > 3) " +${owed.size - 3}" else ""),
+        )
+    }
+
     // ---- Collections mission (Antigravity cloud plane) ----
 
     sealed interface MissionState {
@@ -53,6 +69,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         data object Running : MissionState
         data class Done(val party: String, val ladder: List<com.laxmi.app.missions.ReminderStep>) : MissionState
         data class Failed(val error: String) : MissionState
+
+        // ---- Multi-agent collection drive (Track 2) ----
+        data class CampaignConsent(val briefJson: String, val partyCount: Int) : MissionState
+        data class CampaignRunning(val currentAgent: String, val log: List<String>) : MissionState
+        data class CampaignDone(val messages: List<com.laxmi.app.missions.CollectionsCampaign.CampaignMessage>) : MissionState
     }
 
     val missionState = MutableStateFlow<MissionState>(MissionState.Idle)
