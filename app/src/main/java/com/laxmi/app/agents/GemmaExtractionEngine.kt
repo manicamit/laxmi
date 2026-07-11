@@ -1,0 +1,159 @@
+package com.laxmi.app.agents
+
+import android.util.Log
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.laxmi.app.util.extractJsonArray
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+private const val TAG = "GemmaExtractionEngine"
+
+/**
+ * LiteRT-LM implementation of ExtractionEngine — Plan A, audio-native Gemma 4 E4B.
+ *
+ * NOTE: the com.google.ai.edge.litertlm.* class/method names below are ported from
+ * fetched docs at build time and are UNVERIFIED against a real compile. If they don't
+ * match the actual artifact, this is the ONLY file that should need fixing — that
+ * isolation is the point of the ExtractionEngine interface. Check
+ * https://developers.google.com/edge/litert-lm/android if this doesn't compile.
+ */
+class GemmaExtractionEngine(
+    private val modelFile: File,
+    private val cacheDir: File,
+) : ExtractionEngine {
+
+    private var engine: Engine? = null
+
+    override suspend fun initialize() = withContext(Dispatchers.IO) {
+        // GPU first for speed; CPU fallback so a missing OpenCL driver can never
+        // strand the demo (some devices hide/lack it even with the manifest entry).
+        val backends = listOf(Backend.GPU(), Backend.CPU())
+        var lastError: Throwable? = null
+        for (backend in backends) {
+            try {
+                val config = EngineConfig(
+                    modelPath = modelFile.absolutePath,
+                    backend = backend,
+                    // Without an explicit audioBackend the audio executor is never
+                    // loaded and audio prompts fail with "Audio executor should not
+                    // be null". CPU is the standard pairing for the audio encoder.
+                    audioBackend = Backend.CPU(),
+                    cacheDir = cacheDir.path,
+                )
+                val e = Engine(config)
+                e.initialize()
+                engine = e
+                Log.i(TAG, "engine initialized with backend=${backend.name}")
+                return@withContext
+            } catch (t: Throwable) {
+                Log.w(TAG, "backend ${backend.name} failed: ${t.message}")
+                lastError = t
+            }
+        }
+        throw lastError ?: IllegalStateException("no backend initialized")
+    }
+
+    override suspend fun extract(audio: ByteArray?, text: String?): ExtractionResult =
+        withContext(Dispatchers.IO) {
+            val e = engine
+                ?: return@withContext ExtractionResult.EngineFailure(
+                    "Engine not initialized — call initialize() first"
+                )
+            try {
+                // Fresh conversation per call: extraction context must not
+                // accumulate across notes (drift + context growth).
+                e.createConversation().use { conv ->
+                    val parts = buildList {
+                        add(Content.Text(Prompts.EXTRACTION_PROMPT))
+                        audio?.let { add(Content.AudioBytes(it)) }
+                        text?.let { add(Content.Text(it)) }
+                    }
+                    val response = conv.sendMessage(Contents.of(*parts.toTypedArray()))
+                    val responseText = response.contents.contents
+                        .filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }
+                    parseResponse(responseText)
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "extraction call failed", t)
+                ExtractionResult.EngineFailure(t.message ?: "unknown engine error")
+            }
+        }
+
+    override suspend fun query(question: String, ledgerContext: String): String =
+        withContext(Dispatchers.IO) {
+            val e = engine ?: return@withContext "Engine not ready"
+            try {
+                e.createConversation().use { conv ->
+                    val prompt = """
+You are Laxmi, a ledger assistant for an Indian small business. Below is the
+user's ledger. Answer their question briefly and directly, in the same language
+the question is asked in (Hinglish stays Hinglish). Use ₹ amounts from the
+ledger only — never invent numbers. If the ledger doesn't answer it, say so.
+
+LEDGER:
+$ledgerContext
+
+QUESTION: $question
+""".trimIndent()
+                    val response = conv.sendMessage(Contents.of(Content.Text(prompt)))
+                    response.contents.contents
+                        .filterIsInstance<Content.Text>()
+                        .joinToString("") { it.text }
+                        .trim()
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "query failed", t)
+                "Query failed: ${t.message}"
+            }
+        }
+
+    private fun parseResponse(raw: String): ExtractionResult {
+        val jsonText = extractJsonArray(raw)
+            ?: return ExtractionResult.ParseFailure(raw, "no JSON array found in response")
+        return try {
+            val arr = JSONArray(jsonText)
+            val items = buildList {
+                for (i in 0 until arr.length()) {
+                    add(arr.getJSONObject(i).toExtractionItem())
+                }
+            }
+            ExtractionResult.Success(items, raw)
+        } catch (e: Exception) {
+            ExtractionResult.ParseFailure(raw, e.message ?: "JSON parse error")
+        }
+    }
+
+    private fun JSONObject.stringOrNull(key: String): String? =
+        if (!has(key) || isNull(key)) null else optString(key)
+
+    private fun JSONObject.longOrNull(key: String): Long? =
+        if (!has(key) || isNull(key)) null else optLong(key)
+
+    private fun JSONObject.intOrNull(key: String): Int? =
+        if (!has(key) || isNull(key)) null else optInt(key)
+
+    private fun JSONObject.toExtractionItem() = ExtractionItem(
+        kind = optString("kind", "commitment"),
+        party = optString("party", ""),
+        direction = optString("direction", "owed_to_me"),
+        type = optString("type", "payment"),
+        firmness = optString("firmness", "firm"),
+        amountPhrase = stringOrNull("amount_phrase"),
+        amountGuess = longOrNull("amount_guess"),
+        quantity = intOrNull("quantity"),
+        item = stringOrNull("item"),
+        duePhrase = stringOrNull("due_phrase"),
+        refersToExisting = optBoolean("refers_to_existing", false),
+        confidence = optDouble("confidence", 0.5),
+        quote = optString("quote", ""),
+    )
+}
