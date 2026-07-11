@@ -35,7 +35,7 @@ METRICS: $metrics
     fun advisorPrompt(metrics: String, research: String) = """
 You are the ADVISOR agent. $SPOKEN
 Say the shopkeeper's standing in one line, which ONE scheme fits best, and one
-thing that would strengthen the case. End by offering to send details on WhatsApp.
+thing that would strengthen the case. Do NOT claim you will send anything yourself.
 
 METRICS: $metrics
 
@@ -93,8 +93,8 @@ Output concise notes with any official URLs.
     fun guidePlannerPrompt(topic: String, research: String) = """
 You are the PLANNER agent. $SPOKEN
 Give at most 4 short numbered steps to complete "$topic" — each step one line, what
-to do + what's needed. Name the official portal once. End by offering to send the
-full guide + link on WhatsApp.
+to do + what's needed. Name the official portal once. Do NOT claim you will send
+anything — just end with the steps. (The app shows a share button for the user.)
 
 RESEARCH: $research
 """.trimIndent()
@@ -139,8 +139,8 @@ PROFILE: $profile
 
     fun schemeAdvisorPrompt(research: String) = """
 You are the ADVISOR. $SPOKEN
-Name the 2 best schemes for them and the very first step for each. End by offering
-to send full details on WhatsApp.
+Name the 2 best schemes for them and the very first step for each. Do NOT claim you
+will send anything yourself.
 SCHEMES: $research
 """.trimIndent()
 
